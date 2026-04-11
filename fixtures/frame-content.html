@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pagex Frame Fixture</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 18px;
+        font-family: system-ui, sans-serif;
+        background: #f3f5fb;
+        color: #172033;
+      }
+
+      .panel {
+        padding: 16px;
+        border-radius: 14px;
+        background: white;
+        box-shadow: 0 6px 20px rgba(17, 27, 51, 0.08);
+      }
+    </style>
+  </head>
+  <body>
+    <article class="panel">
+      <h2>Frame content</h2>
+      <p>This content should appear as a separate frame result.</p>
+      <button type="button" aria-expanded="false" id="frame-more">Read more in frame</button>
+      <div id="frame-panel" hidden>Expanded frame text</div>
+    </article>
+
+    <script>
+      const toggle = document.getElementById('frame-more');
+      const panel = document.getElementById('frame-panel');
+
+      toggle.addEventListener('click', () => {
+        toggle.setAttribute('aria-expanded', 'true');
+        panel.hidden = false;
+      });
+    </script>
+  </body>
+</html>

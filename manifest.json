@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Pagex",
+  "version": "0.1.0",
+  "description": "Extract page structure, styles, expanded content, and text into AI-friendly JSON.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs",
+    "webNavigation"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Pagex",
+    "default_popup": "popup.html"
+  },
+  "minimum_chrome_version": "116"
+}

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pagex Demo Fixture</title>
+    <style>
+      :root {
+        font-family: Inter, system-ui, sans-serif;
+        color: #172033;
+        background: #eef3ff;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px;
+      }
+
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        display: grid;
+        gap: 24px;
+      }
+
+      section {
+        padding: 24px;
+        border-radius: 18px;
+        background: white;
+        box-shadow: 0 10px 32px rgba(20, 31, 58, 0.08);
+      }
+
+      button {
+        padding: 10px 16px;
+        border: 0;
+        border-radius: 12px;
+        background: #6276ff;
+        color: white;
+        cursor: pointer;
+      }
+
+      iframe {
+        width: 100%;
+        min-height: 220px;
+        border: 0;
+        border-radius: 14px;
+      }
+
+      .danger {
+        background: #dd4c72;
+      }
+
+      .lazy-zone {
+        min-height: 120vh;
+        display: grid;
+        align-items: end;
+      }
+
+      .lazy-card {
+        padding: 18px;
+        border-radius: 14px;
+        background: #e9f6ef;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>Pagex demo page</h1>
+        <p>
+          This fixture includes details, aria toggles, hidden content, shadow DOM,
+          lazy loading, and iframe content.
+        </p>
+      </section>
+
+      <section>
+        <h2>Native details</h2>
+        <details>
+          <summary>Open details block</summary>
+          <p>Details content that starts collapsed.</p>
+        </details>
+      </section>
+
+      <section>
+        <h2>ARIA expander</h2>
+        <button type="button" id="more-button" aria-expanded="false">
+          Read more
+        </button>
+        <div id="more-panel" hidden>
+          Extra article content that only appears after clicking the button.
+        </div>
+      </section>
+
+      <section>
+        <h2>Fragment collapse link</h2>
+        <a
+          id="fragment-link"
+          href="#fragment-panel"
+          data-bs-toggle="collapse"
+          aria-expanded="false"
+        >
+          Show more
+        </a>
+        <div id="fragment-panel" hidden>
+          Fragment-targeted disclosure content should also be collected.
+        </div>
+      </section>
+
+      <section>
+        <h2>Already expanded control</h2>
+        <button
+          type="button"
+          id="expanded-control"
+          data-bs-toggle="collapse"
+          data-bs-target="#expanded-panel"
+        >
+          Show more
+        </button>
+        <div id="expanded-panel">This panel starts visible and should stay visible.</div>
+        <p id="expanded-status">Expanded control has not been clicked.</p>
+      </section>
+
+      <section>
+        <h2>Dangerous action that should be skipped</h2>
+        <button type="button" class="danger" id="danger-button">
+          Delete account
+        </button>
+        <p id="danger-status">Danger button has not been clicked.</p>
+      </section>
+
+      <section>
+        <h2>Shadow DOM fixture</h2>
+        <div id="shadow-host"></div>
+      </section>
+
+      <section class="lazy-zone">
+        <div class="lazy-card" id="lazy-card">
+          Scroll near the bottom to reveal lazy loaded content.
+        </div>
+      </section>
+
+      <section>
+        <h2>Iframe fixture</h2>
+        <iframe title="Pagex frame fixture" src="./frame-content.html"></iframe>
+      </section>
+    </main>
+
+    <script>
+      const moreButton = document.getElementById('more-button');
+      const morePanel = document.getElementById('more-panel');
+      const dangerButton = document.getElementById('danger-button');
+      const dangerStatus = document.getElementById('danger-status');
+      const fragmentLink = document.getElementById('fragment-link');
+      const fragmentPanel = document.getElementById('fragment-panel');
+      const expandedControl = document.getElementById('expanded-control');
+      const expandedStatus = document.getElementById('expanded-status');
+      const lazyCard = document.getElementById('lazy-card');
+      const shadowHost = document.getElementById('shadow-host');
+      const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
+
+      shadowRoot.innerHTML = `
+        <section style="padding: 18px; border-radius: 14px; background: #f4f0ff;">
+          <h3>Shadow title</h3>
+          <p>Shadow content should be included in the final JSON.</p>
+        </section>
+      `;
+
+      moreButton.addEventListener('click', () => {
+        moreButton.setAttribute('aria-expanded', 'true');
+        morePanel.hidden = false;
+      });
+
+      fragmentLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        fragmentLink.setAttribute('aria-expanded', 'true');
+        fragmentPanel.hidden = false;
+      });
+
+      dangerButton.addEventListener('click', () => {
+        dangerStatus.textContent = 'Danger button was clicked.';
+      });
+
+      expandedControl.addEventListener('click', () => {
+        expandedStatus.textContent = 'Expanded control was clicked.';
+      });
+
+      window.addEventListener('scroll', () => {
+        const threshold = document.documentElement.scrollHeight - window.innerHeight - 80;
+
+        if (window.scrollY < threshold) {
+          return;
+        }
+
+        if (lazyCard.dataset.loaded === 'true') {
+          return;
+        }
+
+        lazyCard.dataset.loaded = 'true';
+        lazyCard.innerHTML = `
+          <h3>Lazy content loaded</h3>
+          <p>This content was injected after scrolling near the bottom.</p>
+        `;
+      });
+    </script>
+  </body>
+</html>

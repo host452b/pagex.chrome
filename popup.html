@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pagex</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app" id="app" data-status="idle">
+      <header class="hero">
+        <div class="hero__halo" aria-hidden="true"></div>
+        <div class="hero__status">
+          <span class="hero__pulse" aria-hidden="true"></span>
+          <span id="statusText">Ready to parse</span>
+        </div>
+        <div class="hero__check" aria-hidden="true">✓</div>
+        <h1 class="hero__title">Pagex</h1>
+        <p class="hero__subtitle" id="detailText">
+          Choose a tab and extract structure, styles, text, and expanded content.
+        </p>
+      </header>
+
+      <section class="panel">
+        <label class="field" for="tabSelect">
+          <span class="field__label">Target tab</span>
+          <select id="tabSelect" class="field__input"></select>
+        </label>
+
+        <div class="actions">
+          <button id="parseBtn" class="button button--primary" type="button">
+            Parse
+          </button>
+          <button
+            id="copyBtn"
+            class="button button--secondary"
+            type="button"
+            disabled
+          >
+            Copy JSON
+          </button>
+        </div>
+      </section>
+
+      <section class="summary">
+        <div class="summary__grid">
+          <article class="metric">
+            <span class="metric__label">Frames</span>
+            <strong class="metric__value" id="framesValue">-</strong>
+          </article>
+          <article class="metric">
+            <span class="metric__label">Elements</span>
+            <strong class="metric__value" id="elementsValue">-</strong>
+          </article>
+          <article class="metric">
+            <span class="metric__label">Clicks</span>
+            <strong class="metric__value" id="clicksValue">-</strong>
+          </article>
+          <article class="metric">
+            <span class="metric__label">Size</span>
+            <strong class="metric__value" id="sizeValue">-</strong>
+          </article>
+        </div>
+        <p class="summary__note" id="summaryNote">
+          No parse result yet.
+        </p>
+      </section>
+
+      <footer class="footer">
+        <span class="footer__hint" id="copyFeedback">
+          The copied payload is formatted JSON for AI processing.
+        </span>
+      </footer>
+    </main>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
