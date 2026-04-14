@@ -285,6 +285,13 @@
   }
 
   function getTextFields(element, options, warnings, label) {
+    if (isEditableElement(element)) {
+      return {
+        directText: '',
+        text: '',
+      };
+    }
+
     const directText = getDirectText(element, options, warnings, label);
     let text = directText;
 
@@ -702,10 +709,8 @@
 
     if (tagName === 'input') {
       if (
-        associatedForm &&
-        controlType === 'submit' ||
-        associatedForm &&
-        controlType === 'reset' ||
+        (associatedForm && controlType === 'submit') ||
+        (associatedForm && controlType === 'reset') ||
         controlType === 'file' ||
         controlType === 'password' ||
         controlType === 'checkbox' ||

@@ -118,7 +118,13 @@ async function handleStartParse(tabId) {
             throw new Error('page collector is unavailable on this page');
           }
 
-          const result = await globalThis.pagexCollector.collectPage(options);
+          const frameTimeoutMs = 15000;
+          const result = await Promise.race([
+            globalThis.pagexCollector.collectPage(options),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('frame collection timed out after 15 s')), frameTimeoutMs),
+            ),
+          ]);
 
           return {
             ok: true,
@@ -225,6 +231,14 @@ async function ensureTabCanBeParsed(tabId) {
     throw new Error('This browser page cannot be parsed.');
   }
 
+  if (url.startsWith('file://')) {
+    throw new Error('Local file pages cannot be parsed without file access permission.');
+  }
+
+  if (url.startsWith('devtools://')) {
+    throw new Error('Developer tools pages cannot be parsed.');
+  }
+
   return tab;
 }
 
@@ -275,3 +289,16 @@ function getErrorMessage(error) {
 
   return 'An unexpected parsing error occurred.';
 }
+
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  try {
+    const stored = await chrome.storage.session.get(PAGEX_STATE_KEY);
+    const parseState = stored[PAGEX_STATE_KEY];
+
+    if (parseState && parseState.selectedTabId === tabId) {
+      await chrome.storage.session.remove(PAGEX_STATE_KEY);
+    }
+  } catch {
+    // Storage access may fail during shutdown — safe to ignore.
+  }
+});

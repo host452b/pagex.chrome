@@ -8,11 +8,9 @@
     "package": "node scripts/package-extension.mjs",
     "generate:store-assets": "node scripts/generate-store-assets.mjs"
   },
-  "dependencies": {
-    "jsdom": "^29.0.2"
-  },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "jsdom": "^29.0.2"
   }
 }
