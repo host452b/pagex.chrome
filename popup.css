@@ -267,6 +267,12 @@ select {
   background: rgba(171, 58, 44, 0.08);
 }
 
+.button--copied {
+  background: rgba(42, 125, 74, 0.12);
+  border-color: rgba(42, 125, 74, 0.3);
+  color: #2a7d4a;
+}
+
 .summary {
   display: flex;
   flex-direction: column;
