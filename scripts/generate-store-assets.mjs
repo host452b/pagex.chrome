@@ -4,10 +4,10 @@ import path from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
 
 const ICON_SPECS = [
-  { size: 16, squareSize: 16, squareOffset: 0, border: 1 },
-  { size: 32, squareSize: 32, squareOffset: 0, border: 2 },
-  { size: 48, squareSize: 48, squareOffset: 0, border: 3 },
-  { size: 128, squareSize: 96, squareOffset: 16, border: 6 },
+  { size: 16 },
+  { size: 32 },
+  { size: 48 },
+  { size: 128 },
 ];
 
 const PX_MATRIX = [
@@ -21,56 +21,63 @@ const PX_MATRIX = [
   '100000010010',
   '100000001100',
 ];
-const FONT_STACK = "Menlo, Monaco, 'Courier New', monospace";
+const FONT_STACK = "Georgia, 'Times New Roman', Times, serif";
+const PAPER = '#f6f0e6';
+const PAPER_DEEP = '#efe6d7';
+const PAPER_LIGHT = '#fffaf3';
+const INK = '#1f1712';
+const MUTED = '#6b574e';
+const ACCENT = '#ab3a2c';
+const RULE = '#cfc3b6';
 
 const SCREENSHOT_SCENES = [
   {
     fileName: 'pagex-screenshot-01-target-tab-1280x800.png',
-    statusText: 'SYSTEM.IDLE',
-    detailLines: ['SELECT TARGET TAB.', 'PARSE PAGE STRUCTURE.', 'COPY CLEAN JSON.'],
-    summaryLines: ['NO PAYLOAD CAPTURED.'],
+    statusText: 'Ready',
+    detailLines: ['Select a tab, reveal what matters,', 'and copy a quieter JSON record.'],
+    summaryLines: ['No captured page yet.'],
     metrics: ['-', '-', '-', '-'],
-    calloutTitle: 'SELECT.TARGET',
-    calloutLines: ['CHOOSE THE ACTIVE PAGE.', 'PRESS PARSE.'],
-    buttonPrimary: 'PARSE',
-    buttonSecondary: 'COPY.JSON',
-    footerText: 'LOCAL OUTPUT. NO REMOTE SEND.',
+    calloutTitle: 'Selected page',
+    calloutLines: ['Choose the active page.', 'Then begin the reading.'],
+    buttonPrimary: 'Parse',
+    buttonSecondary: 'Copy JSON',
+    footerText: 'Local only. Nothing is sent away.',
   },
   {
     fileName: 'pagex-screenshot-02-parsing-1280x800.png',
-    statusText: 'EXPAND + PARSE',
-    detailLines: ['EXPANDING HIDDEN CONTENT.', 'COLLECTING DOM.'],
-    summaryLines: ['ACTIVE TASK.', 'KEEP WINDOW OPEN OR RETURN LATER.'],
+    statusText: 'Reading structure',
+    detailLines: ['Working quietly through structure,', 'hidden sections, and frame notes.'],
+    summaryLines: ['Working quietly in the background.'],
     metrics: ['4', '128', '7', '42 KB'],
-    calloutTitle: 'RUNNING',
-    calloutLines: ['DISCLOSURE PANELS OPEN.', 'FRAMES SCAN. JSON BUILD.'],
-    buttonPrimary: 'PARSING...',
-    buttonSecondary: 'COPY.JSON',
-    footerText: 'LOCAL OUTPUT. NO REMOTE SEND.',
+    calloutTitle: 'While it works',
+    calloutLines: ['Hidden sections are opening.', 'Frames are being noted.'],
+    buttonPrimary: 'Parsing...',
+    buttonSecondary: 'Copy JSON',
+    footerText: 'Local only. Nothing is sent away.',
   },
   {
     fileName: 'pagex-screenshot-03-parse-complete-1280x800.png',
-    statusText: 'PARSE.COMPLETE',
-    detailLines: ['PAYLOAD READY.', 'PRESS COPY.JSON.'],
-    summaryLines: ['4 ACCESSIBLE FRAMES.', '1 SKIPPED FRAME. 2 WARNINGS.'],
+    statusText: 'Ready to copy',
+    detailLines: ['The page reading is prepared.', 'Copy the JSON when you like.'],
+    summaryLines: ['4 accessible frames.', '1 skipped frame. 2 warnings.'],
     metrics: ['5', '241', '9', '64 KB'],
-    calloutTitle: 'PAYLOAD.READY',
-    calloutLines: ['STRUCTURE. TEXT. STYLE SUMMARY.', 'HIDDEN CONTENT.'],
-    buttonPrimary: 'PARSE',
-    buttonSecondary: 'COPY.JSON',
-    footerText: 'LOCAL OUTPUT. NO REMOTE SEND.',
+    calloutTitle: 'Reading complete',
+    calloutLines: ['Structure, text, and note fields', 'are ready for export.'],
+    buttonPrimary: 'Parse',
+    buttonSecondary: 'Copy JSON',
+    footerText: 'Local only. Nothing is sent away.',
   },
   {
     fileName: 'pagex-screenshot-04-copy-json-1280x800.png',
-    statusText: 'PARSE.COMPLETE',
-    detailLines: ['PAYLOAD READY.', 'PRESS COPY.JSON.'],
-    summaryLines: ['4 ACCESSIBLE FRAMES.', '1 SKIPPED FRAME. 2 WARNINGS.'],
+    statusText: 'Ready to copy',
+    detailLines: ['The page reading is prepared.', 'Copy the JSON when you like.'],
+    summaryLines: ['4 accessible frames.', '1 skipped frame. 2 warnings.'],
     metrics: ['5', '241', '9', '64 KB'],
-    calloutTitle: 'COPY.JSON',
-    calloutLines: ['MOVE CLEAN PAGE DATA', 'INTO YOUR AI WORKFLOW.'],
-    buttonPrimary: 'PARSE',
-    buttonSecondary: 'COPY.JSON',
-    footerText: 'COPY COMPLETE.',
+    calloutTitle: 'Copied',
+    calloutLines: ['The note is now on your clipboard.', 'Paste it into your AI workflow.'],
+    buttonPrimary: 'Parse',
+    buttonSecondary: 'Copy JSON',
+    footerText: 'Copied to clipboard.',
   },
 ];
 
@@ -143,26 +150,13 @@ function createPixelCells(matrix, startX, startY, cellSize) {
 }
 
 function buildIconSvg(spec) {
-  const availableSize = spec.squareSize - spec.border * 2;
-  const cellSize = Math.floor(availableSize / PX_MATRIX[0].length);
-  const glyphWidth = PX_MATRIX[0].length * cellSize;
-  const glyphHeight = PX_MATRIX.length * cellSize;
-  const glyphStartX = spec.squareOffset + spec.border + Math.floor((availableSize - glyphWidth) / 2);
-  const glyphStartY = spec.squareOffset + spec.border + Math.floor((availableSize - glyphHeight) / 2);
-  const squareX = spec.squareOffset;
-  const squareY = spec.squareOffset;
-  const totalSize = spec.size;
-  const innerSize = spec.squareSize - spec.border * 2;
-  const innerX = squareX + spec.border;
-  const innerY = squareY + spec.border;
-  const pixels = createPixelCells(PX_MATRIX, glyphStartX, glyphStartY, cellSize);
+  const vb = 128;
+  const radius = 16;
 
   return `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${totalSize}" height="${totalSize}" viewBox="0 0 ${totalSize} ${totalSize}">
-      <rect x="${squareX}" y="${squareY}" width="${spec.squareSize}" height="${spec.squareSize}" fill="#FFFFFF" />
-      <rect x="${squareX}" y="${squareY}" width="${spec.squareSize}" height="${spec.squareSize}" fill="none" stroke="#000000" stroke-width="${spec.border}" />
-      <rect x="${innerX}" y="${innerY}" width="${innerSize}" height="${innerSize}" fill="#FFFFFF" />
-      ${pixels}
+    <svg xmlns="http://www.w3.org/2000/svg" width="${spec.size}" height="${spec.size}" viewBox="0 0 ${vb} ${vb}">
+      <rect width="${vb}" height="${vb}" rx="${radius}" fill="${ACCENT}" />
+      <text x="64" y="68" text-anchor="middle" dominant-baseline="central" fill="${PAPER_LIGHT}" font-family="${FONT_STACK}" font-size="72" font-weight="700" letter-spacing="-2">PX</text>
     </svg>
   `;
 }
@@ -172,6 +166,10 @@ async function renderPng(svgMarkup, width, height, outputPath) {
     fitTo: {
       mode: 'width',
       value: width,
+    },
+    font: {
+      loadSystemFonts: true,
+      defaultFontFamily: 'Georgia',
     },
   });
   const renderedImage = resvg.render();
@@ -202,48 +200,61 @@ function buildLogoPanel(x, y, size, borderWidth) {
   const glyphStartX = x + borderWidth * 2 + Math.floor((availableSize - glyphWidth) / 2);
   const glyphStartY = y + borderWidth * 2 + Math.floor((availableSize - glyphHeight) / 2);
   const pixelMarkup = createPixelCells(PX_MATRIX, glyphStartX, glyphStartY, cellSize);
+  const accentWidth = Math.max(8, Math.floor(size * 0.38));
+  const accentHeight = Math.max(2, Math.floor(size * 0.06));
 
   return [
-    drawRect(x, y, size, size, '#ffffff', borderWidth, '#000000'),
+    drawRect(x, y, size, size, PAPER_DEEP, borderWidth, INK),
+    drawRect(x + borderWidth, y + borderWidth, accentWidth, accentHeight, ACCENT, 0, ACCENT),
     pixelMarkup,
   ].join('');
 }
 
 function buildPromoSvg(width, height, marqueeMode) {
-  let headlineLines = ['PARSE', 'COPY'];
-  let detailLines = ['PX / LOCAL ONLY'];
-  let headlineSize = 46;
-  let headlineLineHeight = 52;
+  let headlineLines = ['Page notes', 'clean JSON'];
+  let detailLines = ['local / filtered / ready for AI'];
+  let headlineSize = 38;
+  let headlineLineHeight = 44;
 
   if (marqueeMode) {
-    headlineLines = ['EXPAND HIDDEN', 'PARSE STRUCTURE', 'COPY JSON'];
-    detailLines = ['BRUTALIST PAGE EXTRACTION SYSTEM'];
-    headlineSize = 54;
+    headlineLines = ['Page notes', 'for hidden structure'];
+    detailLines = ['quiet extraction / careful output / ready for AI'];
+    headlineSize = 58;
     headlineLineHeight = 68;
   }
 
-  const logoSize = 120;
-  let innerMarkup = '';
-
-  innerMarkup += drawRect(0, 0, width, height, '#ffffff', 8, '#000000');
-  innerMarkup += drawRect(28, 28, width - 56, 44, '#000000', 0, '#000000');
-  innerMarkup += drawText(42, 40, 18, 'SYSTEM.INFORMATION / PAGEX', '#ffffff', 700);
-  innerMarkup += buildLogoPanel(44, 112, logoSize, 8);
-  innerMarkup += drawTextLines(192, 112, headlineLineHeight, headlineSize, headlineLines, '#000000', 800);
-  innerMarkup += drawRect(188, height - 98, width - 232, 44, '#000000', 0, '#000000');
-  innerMarkup += drawTextLines(204, height - 84, 24, 20, detailLines, '#ffffff', 700);
+  let logoSize = 104;
+  let logoY = 114;
+  let headlineY = 112;
 
   if (marqueeMode) {
-    innerMarkup += drawRect(width - 250, 112, 180, 180, '#000000', 0, '#000000');
-    innerMarkup += drawText(width - 226, 136, 26, 'PX', '#ffffff', 800);
+    logoSize = 128;
+    logoY = 116;
+    headlineY = 108;
+  }
+  let innerMarkup = '';
+
+  innerMarkup += drawRect(0, 0, width, height, PAPER, 4, RULE);
+  innerMarkup += drawRect(34, 30, 184, 28, ACCENT, 0, ACCENT);
+  innerMarkup += drawText(48, 36, 16, 'editor’s note / pagex', PAPER_LIGHT, 600);
+  innerMarkup += drawRect(34, 74, width - 68, 1, RULE, 0, RULE);
+  innerMarkup += buildLogoPanel(46, logoY, logoSize, 4);
+  innerMarkup += drawTextLines(190, headlineY, headlineLineHeight, headlineSize, headlineLines, INK, 700);
+  innerMarkup += drawTextLines(192, height - 88, 24, 18, detailLines, MUTED, 500);
+  innerMarkup += drawRect(192, height - 102, width - 244, 2, ACCENT, 0, ACCENT);
+
+  if (marqueeMode) {
+    innerMarkup += drawRect(width - 272, 108, 196, 196, PAPER_LIGHT, 1, RULE);
+    innerMarkup += drawRect(width - 272, 108, 54, 196, ACCENT, 0, ACCENT);
+    innerMarkup += drawText(width - 196, 136, 28, 'PX', INK, 700);
     innerMarkup += drawTextLines(
-      width - 226,
+      width - 196,
       176,
-      24,
+      26,
       18,
-      ['FRAME SCAN', 'DOM OUTPUT', 'SYSTEM READY'],
-      '#ffffff',
-      700,
+      ['frame notes', 'quiet copy', 'no page noise'],
+      MUTED,
+      500,
     );
   }
 
@@ -252,51 +263,42 @@ function buildPromoSvg(width, height, marqueeMode) {
 
 function buildPopupMock(scene) {
   let markup = '';
-  let heroFill = '#000000';
-  let heroText = '#ffffff';
-  let flagFill = '#ffffff';
-  let flagText = '#000000';
-  let statusFill = '#000000';
-  let statusTextFill = '#ffffff';
-  let buttonPrimaryFill = '#000000';
-  let buttonPrimaryText = '#ffffff';
+  let statusFill = 'transparent';
+  let statusStroke = RULE;
+  let statusTextFill = ACCENT;
+  let buttonPrimaryFill = ACCENT;
+  let buttonPrimaryText = PAPER_LIGHT;
 
-  if (scene.statusText === 'EXPAND + PARSE') {
-    heroFill = '#ffffff';
-    heroText = '#000000';
-    flagFill = '#000000';
-    flagText = '#ffffff';
-    statusFill = '#ffffff';
-    statusTextFill = '#000000';
-    buttonPrimaryFill = '#ffffff';
-    buttonPrimaryText = '#000000';
+  if (scene.statusText === 'Reading structure') {
+    statusFill = ACCENT;
+    statusStroke = ACCENT;
+    statusTextFill = PAPER_LIGHT;
   }
 
-  markup += drawRect(0, 0, 430, 620, '#ffffff', 6, '#000000');
-  markup += drawRect(16, 16, 398, 170, heroFill, 6, '#000000');
-  markup += drawRect(32, 32, 168, 28, flagFill, 3, heroText);
-  markup += drawText(42, 38, 14, 'SYSTEM.INFORMATION', flagText, 700);
-  markup += drawRect(226, 32, 172, 28, statusFill, 3, heroText);
-  markup += drawText(238, 38, 14, scene.statusText, statusTextFill, 700);
+  markup += drawRect(0, 0, 430, 620, PAPER_LIGHT, 2, RULE);
+  markup += drawRect(16, 16, 398, 170, PAPER_LIGHT, 1, RULE);
+  markup += drawRect(32, 32, 130, 26, ACCENT, 0, ACCENT);
+  markup += drawText(44, 38, 14, 'editor’s note', PAPER_LIGHT, 500);
+  markup += drawRect(234, 32, 164, 26, statusFill, 1, statusStroke);
+  markup += drawText(246, 38, 14, scene.statusText, statusTextFill, 600);
   markup += buildLogoPanel(32, 78, 84, 4);
-  markup += drawText(138, 82, 13, 'PAGE EXTRACTION / JSON OUTPUT', heroText, 700);
-  markup += drawText(138, 108, 42, 'PAGEX', heroText, 800);
-  markup += drawTextLines(138, 150, 16, 12, scene.detailLines, heroText, 700);
+  markup += drawText(138, 84, 13, 'Page reading for careful AI work', ACCENT, 500);
+  markup += drawText(138, 108, 40, 'Pagex', INK, 700);
+  markup += drawTextLines(138, 146, 18, 12, scene.detailLines, MUTED, 500);
 
-  markup += drawRect(16, 204, 398, 116, '#ffffff', 6, '#000000');
-  markup += drawText(32, 220, 14, 'TARGET.TAB', '#000000', 700);
-  markup += drawRect(32, 248, 366, 42, '#ffffff', 4, '#000000');
-  markup += drawText(46, 261, 16, 'Pagex / active / example.com', '#000000', 700);
-  markup += drawRect(32, 304, 176, 40, buttonPrimaryFill, 4, '#000000');
+  markup += drawRect(16, 204, 398, 116, PAPER_LIGHT, 1, RULE);
+  markup += drawText(32, 220, 14, 'Selected page', ACCENT, 500);
+  markup += drawRect(32, 248, 366, 42, PAPER, 1, RULE);
+  markup += drawText(46, 261, 16, 'Pagex / active / example.com', INK, 600);
+  markup += drawRect(32, 304, 176, 40, buttonPrimaryFill, 1, buttonPrimaryFill);
   markup += drawText(78, 314, 18, scene.buttonPrimary, buttonPrimaryText, 800);
-  markup += drawRect(222, 304, 176, 40, '#ffffff', 4, '#000000');
-  markup += drawText(248, 314, 18, scene.buttonSecondary, '#000000', 800);
+  markup += drawRect(222, 304, 176, 40, PAPER_LIGHT, 1, RULE);
+  markup += drawText(244, 314, 18, scene.buttonSecondary, ACCENT, 700);
 
-  markup += drawRect(16, 338, 398, 196, '#ffffff', 6, '#000000');
-  markup += drawRect(32, 354, 194, 26, '#000000', 0, '#000000');
-  markup += drawText(44, 360, 14, 'PAYLOAD.METRICS', '#ffffff', 700);
+  markup += drawRect(16, 338, 398, 196, PAPER_LIGHT, 1, RULE);
+  markup += drawText(32, 356, 14, 'Reading notes', ACCENT, 500);
 
-  const metricNames = ['FRAMES', 'ELEMENTS', 'CLICKS', 'BYTES'];
+  const metricNames = ['Frames', 'Elements', 'Clicks', 'Size'];
   const metricPositions = [
     { x: 32, y: 394 },
     { x: 222, y: 394 },
@@ -307,14 +309,14 @@ function buildPopupMock(scene) {
   for (let index = 0; index < metricNames.length; index += 1) {
     const metric = metricPositions[index];
 
-    markup += drawRect(metric.x, metric.y, 176, 60, '#ffffff', 4, '#000000');
-    markup += drawText(metric.x + 12, metric.y + 10, 13, metricNames[index], '#000000', 700);
-    markup += drawText(metric.x + 12, metric.y + 30, 24, scene.metrics[index], '#000000', 800);
+    markup += drawRect(metric.x, metric.y, 176, 60, PAPER, 1, RULE);
+    markup += drawText(metric.x + 12, metric.y + 10, 13, metricNames[index], ACCENT, 500);
+    markup += drawText(metric.x + 12, metric.y + 30, 24, scene.metrics[index], INK, 700);
   }
 
-  markup += drawTextLines(32, 548, 18, 13, scene.summaryLines, '#000000', 700);
-  markup += drawRect(16, 548 + 34, 398, 40, '#000000', 0, '#000000');
-  markup += drawText(32, 558 + 34, 13, scene.footerText, '#ffffff', 700);
+  markup += drawTextLines(32, 548, 18, 13, scene.summaryLines, INK, 500);
+  markup += drawRect(16, 576, 398, 20, ACCENT, 0, ACCENT);
+  markup += drawText(32, 582, 12, scene.footerText, PAPER_LIGHT, 500);
 
   return markup;
 }
@@ -322,36 +324,52 @@ function buildPopupMock(scene) {
 function buildScreenshotSvg(scene) {
   let innerMarkup = '';
 
-  innerMarkup += drawRect(0, 0, 1280, 800, '#ffffff', 10, '#000000');
-  innerMarkup += drawRect(22, 22, 1236, 66, '#000000', 0, '#000000');
-  innerMarkup += drawText(40, 38, 18, 'PAGEX / CHROME EXTENSION / BRUTALIST MODE', '#ffffff', 700);
-  innerMarkup += drawRect(44, 120, 1190, 634, '#ffffff', 6, '#000000');
-  innerMarkup += drawRect(70, 156, 720, 530, '#ffffff', 4, '#000000');
-  innerMarkup += drawRect(70, 156, 720, 64, '#000000', 0, '#000000');
-  innerMarkup += drawText(92, 176, 18, 'ACTIVE PAGE / CONTENT PREVIEW', '#ffffff', 700);
-  innerMarkup += drawRect(104, 258, 260, 60, '#ffffff', 4, '#000000');
-  innerMarkup += drawText(122, 276, 26, 'SECTION', '#000000', 800);
-  innerMarkup += drawRect(394, 258, 362, 60, '#ffffff', 4, '#000000');
-  innerMarkup += drawText(412, 276, 26, 'DETAILS / EXPANDABLE', '#000000', 800);
-  innerMarkup += drawRect(104, 348, 652, 110, '#000000', 0, '#000000');
+  innerMarkup += drawRect(0, 0, 1280, 800, PAPER, 4, RULE);
+  innerMarkup += drawRect(36, 34, 184, 28, ACCENT, 0, ACCENT);
+  innerMarkup += drawText(50, 40, 16, 'pagex / editorial mode', PAPER_LIGHT, 500);
+  innerMarkup += drawRect(36, 86, 1208, 1, RULE, 0, RULE);
+  innerMarkup += drawRect(60, 128, 732, 564, PAPER_LIGHT, 1, RULE);
+  innerMarkup += drawText(88, 152, 14, 'Selected page', ACCENT, 500);
   innerMarkup += drawTextLines(
-    128,
-    376,
-    34,
-    24,
-    ['DOM STRUCTURE', 'HIDDEN CONTENT', 'FILTERED ATTRIBUTES'],
-    '#ffffff',
+    88,
+    182,
+    54,
+    42,
+    ['Page structure,', 'hidden sections,', 'clean notes.'],
+    INK,
     700,
   );
-  innerMarkup += drawRect(104, 494, 652, 148, '#ffffff', 4, '#000000');
+  innerMarkup += drawRect(88, 372, 356, 170, PAPER, 1, RULE);
+  innerMarkup += drawText(106, 390, 14, 'Margin note', ACCENT, 500);
   innerMarkup += drawTextLines(
-    128,
-    522,
-    28,
+    106,
+    422,
+    26,
     20,
-    ['LOCAL PARSE FLOW', 'NO REMOTE SEND', 'AI-READY JSON OUTPUT'],
-    '#000000',
-    700,
+    ['Visible content', 'Expandable sections', 'Filtered attributes'],
+    MUTED,
+    500,
+  );
+  innerMarkup += drawRect(470, 372, 286, 170, PAPER_DEEP, 1, RULE);
+  innerMarkup += drawText(488, 390, 14, 'Output', ACCENT, 500);
+  innerMarkup += drawTextLines(
+    488,
+    422,
+    30,
+    22,
+    ['Quiet reading', 'Careful export', 'JSON for AI'],
+    INK,
+    600,
+  );
+  innerMarkup += drawRect(88, 572, 668, 1, RULE, 0, RULE);
+  innerMarkup += drawTextLines(
+    88,
+    592,
+    24,
+    18,
+    ['Local workflow only.', 'No remote send by default.'],
+    MUTED,
+    500,
   );
 
   innerMarkup += `<g transform="translate(762, 124)">${buildPopupMock(scene)}</g>`;
