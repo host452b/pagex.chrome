@@ -10,7 +10,7 @@
     <main class="app" id="app" data-status="idle">
       <header class="hero">
         <div class="hero__row">
-          <span class="hero__flag">Editor's note</span>
+          <span class="hero__flag">Pagex</span>
           <span class="hero__status" id="statusText" aria-live="polite">Ready</span>
         </div>
         <div class="hero__brand">
@@ -20,25 +20,25 @@
             alt="Pagex PX logo"
           />
           <div class="hero__identity">
-            <span class="hero__label">Page reading for careful AI work</span>
+            <span class="hero__label">Extract any page into AI-ready JSON</span>
             <h1 class="hero__title">Pagex</h1>
           </div>
         </div>
         <p class="hero__subtitle" id="detailText" aria-live="polite">
-          Select a tab, reveal what matters, and copy a quieter JSON record.
+          Step 1: Pick a tab below · Step 2: Click Extract · Step 3: Copy the JSON
         </p>
         <div class="hero__progress" role="progressbar" aria-label="Parse progress"></div>
       </header>
 
       <section class="panel">
         <label class="field" for="tabSelect">
-          <span class="field__label">Selected page</span>
+          <span class="field__label">Which page to extract?</span>
           <select id="tabSelect" class="field__input"></select>
         </label>
 
         <div class="actions">
           <button id="parseBtn" class="button button--primary" type="button">
-            Parse
+            Extract Page
           </button>
           <button
             id="copyBtn"
@@ -52,7 +52,7 @@
       </section>
 
       <section class="summary">
-        <div class="summary__header">Reading notes</div>
+        <div class="summary__header">Extraction results</div>
         <div class="summary__grid">
           <article class="metric">
             <span class="metric__label">Frames</span>
@@ -78,7 +78,7 @@
 
       <footer class="footer">
         <span class="footer__hint" id="copyFeedback" aria-live="polite">
-          Local only. Nothing is sent away.
+          Everything stays on your device. Nothing is sent anywhere.
         </span>
       </footer>
     </main>

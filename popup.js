@@ -186,22 +186,22 @@ function renderStatus() {
   let status = 'idle';
   let statusText = 'Ready';
   let detailText =
-    'Select a tab, reveal what matters, and copy a quieter JSON record.';
+    'Step 1: Pick a tab below · Step 2: Click Extract · Step 3: Copy the JSON';
 
   if (viewState.parseState && viewState.parseState.status) {
     status = viewState.parseState.status;
   }
 
   if (status === 'running') {
-    statusText = viewState.parseState.stageLabel || 'Reading';
+    statusText = viewState.parseState.stageLabel || 'Extracting';
     detailText =
-      'Working quietly through structure, hidden sections, and frame notes.';
+      'Extracting page content — text, structure, and hidden sections.';
   }
 
   if (status === 'completed') {
-    statusText = 'Ready to copy';
+    statusText = 'Done — ready to copy';
     detailText =
-      'The page reading is prepared. Copy the JSON when you like.';
+      'Extraction complete. Click "Copy JSON" to copy to clipboard.';
 
     const mismatchMessage = getResultMismatchMessage(
       viewState.parseState,
@@ -215,7 +215,7 @@ function renderStatus() {
 
   if (status === 'error') {
     statusText = 'Needs attention';
-    detailText = viewState.parseState.errorMessage || 'This page could not be parsed.';
+    detailText = viewState.parseState.errorMessage || 'This page could not be extracted.';
   }
 
   elements.app.dataset.status = status;
@@ -227,19 +227,19 @@ function renderSummary() {
   resetMetricValues();
 
   if (!viewState.parseState) {
-    elements.summaryNote.textContent = 'No captured page yet.';
+    elements.summaryNote.textContent = 'Pick a tab and click "Extract Page" to start.';
     return;
   }
 
   if (viewState.parseState.status === 'running') {
     elements.summaryNote.textContent =
-      'Working quietly in the background.';
+      'Extracting — results will appear here.';
     return;
   }
 
   if (viewState.parseState.status === 'error') {
     elements.summaryNote.textContent =
-      viewState.parseState.errorMessage || 'This page could not be parsed.';
+      viewState.parseState.errorMessage || 'This page could not be extracted.';
     return;
   }
 
@@ -250,7 +250,7 @@ function renderSummary() {
   );
 
   if (!summary) {
-    elements.summaryNote.textContent = 'No summary is available yet.';
+    elements.summaryNote.textContent = 'No extraction summary available yet.';
     return;
   }
 
@@ -307,11 +307,11 @@ function renderButtons() {
   elements.copyButton.disabled = !canCopy;
 
   if (running) {
-    elements.parseButton.textContent = 'Reading...';
+    elements.parseButton.textContent = 'Extracting...';
     return;
   }
 
-  elements.parseButton.textContent = 'Parse';
+  elements.parseButton.textContent = 'Extract Page';
 }
 
 async function handleParseClick() {
@@ -330,7 +330,7 @@ async function handleParseClick() {
   if (!Number.isInteger(selectedTabId) || selectedTabId <= 0) {
     elements.app.dataset.status = 'error';
     elements.statusText.textContent = 'Needs attention';
-    elements.detailText.textContent = 'Choose a valid tab before parsing.';
+    elements.detailText.textContent = 'Choose a valid tab before extracting.';
     return;
   }
 
@@ -338,7 +338,7 @@ async function handleParseClick() {
   elements.app.dataset.status = 'running';
   elements.statusText.textContent = 'Starting';
   elements.detailText.textContent =
-    'Opening the selected page and preparing a reading.';
+    'Connecting to the selected page...';
   renderButtons();
   resetCopyFeedback();
 
@@ -349,7 +349,7 @@ async function handleParseClick() {
       elements.app.dataset.status = 'error';
       elements.statusText.textContent = 'Permission needed';
       elements.detailText.textContent =
-        'Allow access to this site before parsing the page.';
+        'Chrome needs your permission to read this site. Please allow it and try again.';
       return;
     }
 
@@ -368,12 +368,12 @@ async function handleParseClick() {
     if (response && response.errorMessage) {
       elements.detailText.textContent = response.errorMessage;
     } else {
-      elements.detailText.textContent = 'The parser could not start for this tab.';
+      elements.detailText.textContent = 'Could not start extraction for this tab.';
     }
   } catch (error) {
     elements.app.dataset.status = 'error';
     elements.statusText.textContent = 'Needs attention';
-    elements.detailText.textContent = 'The parser request could not be delivered.';
+    elements.detailText.textContent = 'Could not connect to the extension. Please try again.';
   } finally {
     viewState.isStartingParse = false;
     renderButtons();
@@ -444,7 +444,7 @@ function setCopyFeedback(text) {
 
 function resetCopyFeedback() {
   elements.copyFeedback.textContent =
-    'Local only. Nothing is sent away.';
+    'Everything stays on your device. Nothing is sent anywhere.';
   elements.copyButton.classList.remove('button--copied');
   elements.copyButton.textContent = 'Copy JSON';
 }
