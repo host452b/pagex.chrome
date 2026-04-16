@@ -491,28 +491,159 @@ async function handleScreenshotClick() {
     await chrome.tabs.update(selectedTabId, { active: true });
     await delay(200);
 
+    // Phase 1: Measure page and unfold non-document scrollable containers.
+    // Many SPAs use overflow:hidden on html/body with a scrollable child div,
+    // and intermediate wrappers (#root, .layout) that constrain height.
+    // We find the main scrollable container, then walk up the ancestor chain
+    // and temporarily remove every height/overflow constraint so the full
+    // content participates in document-level scrolling.
     const [{ result: dims }] = await chrome.scripting.executeScript({
       target: { tabId: selectedTabId },
-      func: () => ({
-        scrollHeight: Math.max(
+      func: () => {
+        const viewportHeight = window.innerHeight;
+        const saved = [];
+        let scrollHeight = Math.max(
+          document.body.scrollHeight,
+          document.documentElement.scrollHeight,
+        );
+
+        if (scrollHeight <= viewportHeight + 1) {
+          // Step A: Unfold html and body.
+          for (const el of [document.documentElement, document.body]) {
+            saved.push({ el, css: el.style.cssText });
+            el.style.setProperty('overflow', 'visible', 'important');
+            el.style.setProperty('height', 'auto', 'important');
+            el.style.setProperty('max-height', 'none', 'important');
+          }
+
+          // Step B: Find the primary scrollable container (largest content).
+          let target = null;
+          let maxScroll = 0;
+
+          for (const el of document.querySelectorAll('*')) {
+            if (el === document.documentElement || el === document.body) {
+              continue;
+            }
+
+            const cs = getComputedStyle(el);
+
+            if (
+              (cs.overflowY === 'auto' || cs.overflowY === 'scroll') &&
+              el.scrollHeight > el.clientHeight + 10
+            ) {
+              if (el.scrollHeight > maxScroll) {
+                maxScroll = el.scrollHeight;
+                target = el;
+              }
+            }
+          }
+
+          if (target) {
+            // Step C: Unfold the scrollable container itself.
+            saved.push({ el: target, css: target.style.cssText });
+            target.style.setProperty('overflow', 'visible', 'important');
+            target.style.setProperty('height', 'auto', 'important');
+            target.style.setProperty('max-height', 'none', 'important');
+
+            // Step D: Walk up to body and unfold every ancestor that may
+            // constrain height (e.g. #root, .layout with height:100%).
+            let ancestor = target.parentElement;
+
+            while (ancestor && ancestor !== document.documentElement) {
+              saved.push({ el: ancestor, css: ancestor.style.cssText });
+              ancestor.style.setProperty('overflow', 'visible', 'important');
+              ancestor.style.setProperty('height', 'auto', 'important');
+              ancestor.style.setProperty('max-height', 'none', 'important');
+              ancestor = ancestor.parentElement;
+            }
+          }
+
+          // Re-measure after unfolding.
+          scrollHeight = Math.max(
+            document.body.scrollHeight,
+            document.documentElement.scrollHeight,
+          );
+        }
+
+        window.__pagexSaved = saved;
+
+        return {
+          scrollHeight,
+          viewportHeight,
+          viewportWidth: window.innerWidth,
+          originalScrollX: window.scrollX,
+          originalScrollY: window.scrollY,
+          devicePixelRatio: window.devicePixelRatio || 1,
+        };
+      },
+    });
+
+    // Phase 2: Pre-scroll to bottom and back to trigger lazy-loaded content,
+    // then re-measure in case the page grew.
+    await chrome.scripting.executeScript({
+      target: { tabId: selectedTabId },
+      func: (h) => window.scrollTo(0, h),
+      args: [dims.scrollHeight],
+    });
+
+    await delay(500);
+
+    await chrome.scripting.executeScript({
+      target: { tabId: selectedTabId },
+      func: () => window.scrollTo(0, 0),
+    });
+
+    await delay(300);
+
+    const [{ result: measuredHeight }] = await chrome.scripting.executeScript({
+      target: { tabId: selectedTabId },
+      func: () =>
+        Math.max(
           document.body.scrollHeight,
           document.documentElement.scrollHeight,
         ),
-        viewportHeight: window.innerHeight,
-        viewportWidth: window.innerWidth,
-        originalScrollX: window.scrollX,
-        originalScrollY: window.scrollY,
-        devicePixelRatio: window.devicePixelRatio || 1,
-      }),
     });
 
+    dims.scrollHeight = Math.max(dims.scrollHeight, measuredHeight);
+
+    // Phase 3: Prepare canvas with safe dimensions.
+    // Chrome caps canvas at ~16384px per dimension. For long pages we scale
+    // down so the entire page fits. Each capture is drawn immediately to avoid
+    // holding dozens of full-viewport PNGs in memory at once.
+    const MAX_DIM = 16384;
+    let scale = dims.devicePixelRatio;
+
+    if (dims.viewportWidth * scale > MAX_DIM) {
+      scale = MAX_DIM / dims.viewportWidth;
+    }
+
+    if (dims.scrollHeight * scale > MAX_DIM) {
+      scale = MAX_DIM / dims.scrollHeight;
+    }
+
+    scale = Math.max(scale, 0.5);
+
+    const canvasWidth = Math.round(dims.viewportWidth * scale);
+    const canvasHeight = Math.min(
+      Math.round(dims.scrollHeight * scale),
+      MAX_DIM,
+    );
+    const capturePageHeight = canvasHeight / scale;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+    const ctx = canvas.getContext('2d');
+
     const positions = calculateScrollPositions(
-      dims.scrollHeight,
+      capturePageHeight,
       dims.viewportHeight,
     );
 
-    const captures = [];
+    const drawWidth = Math.round(dims.viewportWidth * scale);
+    const drawHeight = Math.round(dims.viewportHeight * scale);
 
+    // Phase 4: Scroll-and-capture loop — draw each frame immediately.
     for (let i = 0; i < positions.length; i++) {
       elements.screenshotButton.textContent =
         `Capturing ${i + 1}/${positions.length}...`;
@@ -534,33 +665,37 @@ async function handleScreenshotClick() {
         func: () => window.scrollY,
       });
 
-      captures.push({ dataUrl, scrollY: actualY });
+      const img = await loadImage(dataUrl);
+      const drawY = Math.round(actualY * scale);
+      ctx.drawImage(img, 0, drawY, drawWidth, drawHeight);
     }
 
+    // Phase 5: Restore original page styles and scroll position.
     await chrome.scripting.executeScript({
       target: { tabId: selectedTabId },
-      func: (x, y) => window.scrollTo(x, y),
+      func: (origX, origY) => {
+        const saved = window.__pagexSaved || [];
+
+        for (const entry of saved) {
+          entry.el.style.cssText = entry.css;
+        }
+
+        delete window.__pagexSaved;
+        window.scrollTo(origX, origY);
+      },
       args: [dims.originalScrollX, dims.originalScrollY],
     });
 
-    elements.screenshotButton.textContent = 'Stitching...';
-
-    const canvasWidth = dims.viewportWidth * dims.devicePixelRatio;
-    const canvasHeight = dims.scrollHeight * dims.devicePixelRatio;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-    const ctx = canvas.getContext('2d');
-
-    for (const capture of captures) {
-      const img = await loadImage(capture.dataUrl);
-      const drawY = capture.scrollY * dims.devicePixelRatio;
-      ctx.drawImage(img, 0, drawY);
-    }
+    elements.screenshotButton.textContent = 'Saving...';
 
     const blob = await new Promise((resolve) =>
       canvas.toBlob(resolve, 'image/png'),
     );
+
+    if (!blob) {
+      setToolsFeedback('Page too large — could not generate image.');
+      return;
+    }
 
     const tab = viewState.tabs.find((t) => t.id === selectedTabId);
     let hostname = 'page';
