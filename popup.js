@@ -15,12 +15,16 @@ import { buildOriginPermissionPattern } from './src/shared/origin-permissions.js
 import { calculateScrollPositions } from './src/shared/screenshot-utils.js';
 import { formatCookiesTxt } from './src/shared/cookies-utils.js';
 
+const PARSE_ESTIMATE_SECONDS = 30;
+
 const viewState = {
   tabs: [],
   parseState: null,
   isStartingParse: false,
   isCapturingScreenshot: false,
   stopRequested: false,
+  parseStartedAt: 0,
+  countdownTimer: 0,
   copyResetTimer: 0,
   toolsFeedbackTimer: 0,
 };
@@ -220,8 +224,20 @@ function renderStatus() {
 
   if (status === 'running') {
     statusText = viewState.parseState.stageLabel || 'Extracting';
-    detailText =
-      'Extracting page content — text, structure, and hidden sections.';
+
+    if (viewState.parseStartedAt) {
+      const elapsed = Math.floor(
+        (Date.now() - viewState.parseStartedAt) / 1000,
+      );
+      const remaining = Math.max(PARSE_ESTIMATE_SECONDS - elapsed, 0);
+
+      detailText =
+        remaining > 0
+          ? `Extracting page content · ~${remaining}s remaining`
+          : 'Extracting page content · finishing up...';
+    } else {
+      detailText = 'Extracting page content...';
+    }
   }
 
   if (status === 'completed') {
@@ -309,6 +325,28 @@ function buildSummaryNote(summary) {
   return noteParts.join(' • ');
 }
 
+function startCountdown() {
+  stopCountdown();
+  viewState.parseStartedAt = Date.now();
+  viewState.countdownTimer = window.setInterval(() => {
+    if (isRunning()) {
+      renderStatus();
+      renderButtons();
+    } else {
+      stopCountdown();
+    }
+  }, 1000);
+}
+
+function stopCountdown() {
+  if (viewState.countdownTimer) {
+    window.clearInterval(viewState.countdownTimer);
+    viewState.countdownTimer = 0;
+  }
+
+  viewState.parseStartedAt = 0;
+}
+
 function isRunning() {
   if (viewState.isStartingParse) {
     return true;
@@ -331,8 +369,21 @@ function renderButtons() {
   elements.copyButton.disabled = !canCopy;
 
   if (running) {
+    let stopLabel = 'Stop';
+
+    if (viewState.parseStartedAt) {
+      const elapsed = Math.floor(
+        (Date.now() - viewState.parseStartedAt) / 1000,
+      );
+      const remaining = Math.max(PARSE_ESTIMATE_SECONDS - elapsed, 0);
+
+      if (remaining > 0) {
+        stopLabel = `Stop · ${remaining}s`;
+      }
+    }
+
     elements.parseButton.disabled = false;
-    elements.parseButton.textContent = 'Stop';
+    elements.parseButton.textContent = stopLabel;
     elements.parseButton.classList.remove('button--primary');
     elements.parseButton.classList.add('button--stop');
     return;
@@ -376,6 +427,7 @@ async function handleParseClick() {
   elements.statusText.textContent = 'Starting';
   elements.detailText.textContent =
     'Connecting to the selected page...';
+  startCountdown();
   renderButtons();
   resetCopyFeedback();
 
@@ -412,6 +464,7 @@ async function handleParseClick() {
     elements.statusText.textContent = 'Needs attention';
     elements.detailText.textContent = 'Could not connect to the extension. Please try again.';
   } finally {
+    stopCountdown();
     viewState.isStartingParse = false;
     renderButtons();
   }
@@ -419,6 +472,7 @@ async function handleParseClick() {
 
 async function handleStopClick() {
   // Immediately reset local state so the UI responds without waiting.
+  stopCountdown();
   viewState.stopRequested = true;
   viewState.parseState = null;
   viewState.isStartingParse = false;
