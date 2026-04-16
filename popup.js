@@ -15,7 +15,16 @@ import { buildOriginPermissionPattern } from './src/shared/origin-permissions.js
 import { calculateScrollPositions } from './src/shared/screenshot-utils.js';
 import { formatCookiesTxt } from './src/shared/cookies-utils.js';
 
-const PARSE_ESTIMATE_SECONDS = 30;
+// Maps each background stage to cumulative estimated seconds.
+// Based on real timing: injection can wait up to 8s for iframe timeout,
+// collection can wait up to 15s per frame + 8s iframe fallback.
+const STAGE_PROGRESS = {
+  preparing: { cumulative: 2, total: 30 },
+  injecting: { cumulative: 10, total: 30 },
+  collecting: { cumulative: 25, total: 30 },
+  inspecting: { cumulative: 28, total: 30 },
+  finalizing: { cumulative: 30, total: 30 },
+};
 
 const viewState = {
   tabs: [],
@@ -226,10 +235,24 @@ function renderStatus() {
     statusText = viewState.parseState.stageLabel || 'Extracting';
 
     if (viewState.parseStartedAt) {
+      const stageKey = viewState.parseState.stageKey || '';
+      const stage = STAGE_PROGRESS[stageKey];
       const elapsed = Math.floor(
         (Date.now() - viewState.parseStartedAt) / 1000,
       );
-      const remaining = Math.max(PARSE_ESTIMATE_SECONDS - elapsed, 0);
+
+      let remaining;
+
+      if (stage) {
+        // Use whichever is larger: stage-based estimate or elapsed-based.
+        // This avoids the countdown jumping backwards when a stage arrives
+        // earlier than expected.
+        const stageRemaining = stage.total - stage.cumulative;
+        const elapsedRemaining = Math.max(stage.total - elapsed, 0);
+        remaining = Math.min(stageRemaining, elapsedRemaining);
+      } else {
+        remaining = Math.max(30 - elapsed, 0);
+      }
 
       detailText =
         remaining > 0
@@ -371,11 +394,22 @@ function renderButtons() {
   if (running) {
     let stopLabel = 'Stop';
 
-    if (viewState.parseStartedAt) {
+    if (viewState.parseStartedAt && viewState.parseState) {
+      const stageKey = viewState.parseState.stageKey || '';
+      const stage = STAGE_PROGRESS[stageKey];
       const elapsed = Math.floor(
         (Date.now() - viewState.parseStartedAt) / 1000,
       );
-      const remaining = Math.max(PARSE_ESTIMATE_SECONDS - elapsed, 0);
+
+      let remaining;
+
+      if (stage) {
+        const stageRemaining = stage.total - stage.cumulative;
+        const elapsedRemaining = Math.max(stage.total - elapsed, 0);
+        remaining = Math.min(stageRemaining, elapsedRemaining);
+      } else {
+        remaining = Math.max(30 - elapsed, 0);
+      }
 
       if (remaining > 0) {
         stopLabel = `Stop · ${remaining}s`;
