@@ -104,13 +104,28 @@ async function handleStartParse(tabId) {
       stageLabel: PAGEX_STAGE_LABELS.INJECTING,
     });
 
-    await chrome.scripting.executeScript({
-      target: {
-        tabId,
-        allFrames: true,
-      },
-      files: ['content.js'],
-    });
+    // Inject content script into all accessible frames.
+    // Wrap in an outer timeout because a stuck ad-iframe event loop can
+    // prevent the inner per-frame setTimeout from ever firing, hanging
+    // the entire executeScript call indefinitely.
+    const INJECT_TIMEOUT_MS = 10000;
+    const COLLECT_TIMEOUT_MS = 30000;
+
+    await Promise.race([
+      chrome.scripting.executeScript({
+        target: {
+          tabId,
+          allFrames: true,
+        },
+        files: ['content.js'],
+      }),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error('content script injection timed out')),
+          INJECT_TIMEOUT_MS,
+        ),
+      ),
+    ]);
 
     await writeStageState({
       requestId,
@@ -119,48 +134,67 @@ async function handleStartParse(tabId) {
       stageLabel: PAGEX_STAGE_LABELS.COLLECTING,
     });
 
-    const accessibleFrameResults = await chrome.scripting.executeScript({
-      target: {
-        tabId,
-        allFrames: true,
-      },
-      func: async (options) => {
-        try {
-          if (
-            !globalThis.pagexCollector ||
-            typeof globalThis.pagexCollector.collectPage !== 'function'
-          ) {
-            throw new Error('page collector is unavailable on this page');
-          }
+    const accessibleFrameResults = await Promise.race([
+      chrome.scripting.executeScript({
+        target: {
+          tabId,
+          allFrames: true,
+        },
+        func: async (options) => {
+          try {
+            if (
+              !globalThis.pagexCollector ||
+              typeof globalThis.pagexCollector.collectPage !== 'function'
+            ) {
+              throw new Error('page collector is unavailable on this page');
+            }
 
-          const frameTimeoutMs = 15000;
-          const result = await Promise.race([
-            globalThis.pagexCollector.collectPage(options),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('frame collection timed out after 15 s')), frameTimeoutMs),
+            const frameTimeoutMs = 15000;
+            const result = await Promise.race([
+              globalThis.pagexCollector.collectPage(options),
+              new Promise((_, reject) =>
+                setTimeout(
+                  () =>
+                    reject(
+                      new Error('frame collection timed out after 15 s'),
+                    ),
+                  frameTimeoutMs,
+                ),
+              ),
+            ]);
+
+            return {
+              ok: true,
+              result,
+            };
+          } catch (error) {
+            let errorMessage = 'frame collection failed';
+
+            if (error instanceof Error && error.message) {
+              errorMessage = error.message;
+            }
+
+            return {
+              ok: false,
+              frameUrl: window.location.href,
+              errorMessage,
+            };
+          }
+        },
+        args: [PAGEX_PARSE_OPTIONS],
+      }),
+      new Promise((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                'Page collection timed out — the page may have unresponsive frames.',
+              ),
             ),
-          ]);
-
-          return {
-            ok: true,
-            result,
-          };
-        } catch (error) {
-          let errorMessage = 'frame collection failed';
-
-          if (error instanceof Error && error.message) {
-            errorMessage = error.message;
-          }
-
-          return {
-            ok: false,
-            frameUrl: window.location.href,
-            errorMessage,
-          };
-        }
-      },
-      args: [PAGEX_PARSE_OPTIONS],
-    });
+          COLLECT_TIMEOUT_MS,
+        ),
+      ),
+    ]);
 
     await writeStageState({
       requestId,
