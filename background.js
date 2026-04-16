@@ -104,28 +104,39 @@ async function handleStartParse(tabId) {
       stageLabel: PAGEX_STAGE_LABELS.INJECTING,
     });
 
-    // Inject content script into all accessible frames.
-    // Wrap in an outer timeout because a stuck ad-iframe event loop can
-    // prevent the inner per-frame setTimeout from ever firing, hanging
-    // the entire executeScript call indefinitely.
-    const INJECT_TIMEOUT_MS = 10000;
-    const COLLECT_TIMEOUT_MS = 30000;
+    // Two-phase injection: main frame first (fast, reliable), then
+    // sub-frames as best-effort.  Ad-heavy pages like time.is have
+    // cross-origin iframes whose event loops are blocked by ad scripts.
+    // executeScript({allFrames}) hangs forever waiting for them and
+    // gives zero partial results on timeout.  By collecting the main
+    // frame separately we guarantee the primary content is captured
+    // even when iframes are stuck.
 
-    await Promise.race([
-      chrome.scripting.executeScript({
-        target: {
-          tabId,
-          allFrames: true,
-        },
-        files: ['content.js'],
-      }),
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error('content script injection timed out')),
-          INJECT_TIMEOUT_MS,
+    const IFRAME_TIMEOUT_MS = 8000;
+
+    // Phase A: Inject content.js into main frame (always fast).
+    await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      files: ['content.js'],
+    });
+
+    // Phase B: Best-effort injection into sub-frames.
+    try {
+      await Promise.race([
+        chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          files: ['content.js'],
+        }),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('sub-frame injection timed out')),
+            IFRAME_TIMEOUT_MS,
+          ),
         ),
-      ),
-    ]);
+      ]);
+    } catch {
+      // Sub-frame injection timed out — main frame is already injected.
+    }
 
     await writeStageState({
       requestId,
@@ -134,67 +145,73 @@ async function handleStartParse(tabId) {
       stageLabel: PAGEX_STAGE_LABELS.COLLECTING,
     });
 
-    const accessibleFrameResults = await Promise.race([
-      chrome.scripting.executeScript({
-        target: {
-          tabId,
-          allFrames: true,
-        },
-        func: async (options) => {
-          try {
-            if (
-              !globalThis.pagexCollector ||
-              typeof globalThis.pagexCollector.collectPage !== 'function'
-            ) {
-              throw new Error('page collector is unavailable on this page');
-            }
+    // The function executed inside each frame to collect page content.
+    const collectPageInFrame = async (options) => {
+      try {
+        if (
+          !globalThis.pagexCollector ||
+          typeof globalThis.pagexCollector.collectPage !== 'function'
+        ) {
+          throw new Error('page collector is unavailable on this page');
+        }
 
-            const frameTimeoutMs = 15000;
-            const result = await Promise.race([
-              globalThis.pagexCollector.collectPage(options),
-              new Promise((_, reject) =>
-                setTimeout(
-                  () =>
-                    reject(
-                      new Error('frame collection timed out after 15 s'),
-                    ),
-                  frameTimeoutMs,
-                ),
-              ),
-            ]);
-
-            return {
-              ok: true,
-              result,
-            };
-          } catch (error) {
-            let errorMessage = 'frame collection failed';
-
-            if (error instanceof Error && error.message) {
-              errorMessage = error.message;
-            }
-
-            return {
-              ok: false,
-              frameUrl: window.location.href,
-              errorMessage,
-            };
-          }
-        },
-        args: [PAGEX_PARSE_OPTIONS],
-      }),
-      new Promise((_, reject) =>
-        setTimeout(
-          () =>
-            reject(
-              new Error(
-                'Page collection timed out — the page may have unresponsive frames.',
-              ),
+        const frameTimeoutMs = 15000;
+        const result = await Promise.race([
+          globalThis.pagexCollector.collectPage(options),
+          new Promise((_, reject) =>
+            setTimeout(
+              () =>
+                reject(new Error('frame collection timed out after 15 s')),
+              frameTimeoutMs,
             ),
-          COLLECT_TIMEOUT_MS,
+          ),
+        ]);
+
+        return {
+          ok: true,
+          result,
+        };
+      } catch (error) {
+        let errorMessage = 'frame collection failed';
+
+        if (error instanceof Error && error.message) {
+          errorMessage = error.message;
+        }
+
+        return {
+          ok: false,
+          frameUrl: window.location.href,
+          errorMessage,
+        };
+      }
+    };
+
+    // Phase C: Collect from all frames.  If sub-frames are stuck,
+    // fall back to main-frame-only after the timeout.
+    let accessibleFrameResults;
+
+    try {
+      accessibleFrameResults = await Promise.race([
+        chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: collectPageInFrame,
+          args: [PAGEX_PARSE_OPTIONS],
+        }),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('sub-frame collection timed out')),
+            IFRAME_TIMEOUT_MS,
+          ),
         ),
-      ),
-    ]);
+      ]);
+    } catch {
+      // All-frames timed out — fall back to main frame only.
+      accessibleFrameResults = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        func: collectPageInFrame,
+        args: [PAGEX_PARSE_OPTIONS],
+      });
+    }
 
     await writeStageState({
       requestId,
