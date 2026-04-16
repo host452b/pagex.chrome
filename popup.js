@@ -266,7 +266,7 @@ function renderStatus() {
   if (status === 'completed') {
     statusText = 'Done — ready to copy';
     detailText =
-      'Extraction complete. Click "Copy JSON" to copy to clipboard.';
+      'Extraction complete. Click "Download JSON" to save the file.';
 
     const mismatchMessage = getResultMismatchMessage(
       viewState.parseState,
@@ -568,10 +568,23 @@ async function handleCopyClick() {
   }
 
   const formatted = formatResultForCopy(viewState.parseState.result);
-  await navigator.clipboard.writeText(formatted);
+
+  const selectedTabId = getCurrentSelectedTabId();
+  const tab = viewState.tabs.find((t) => t.id === selectedTabId);
+  let hostname = 'page';
+
+  try {
+    hostname = new URL(tab.url).hostname.replace(/[^a-z0-9.-]/gi, '_');
+  } catch {
+    // Use default hostname.
+  }
+
+  const blob = new Blob([formatted], { type: 'application/json' });
+  downloadBlob(blob, `pagex-${hostname}-${Date.now()}.json`);
+
   elements.copyButton.classList.add('button--copied');
-  elements.copyButton.textContent = 'Copied';
-  setCopyFeedback('Copied to clipboard.');
+  elements.copyButton.textContent = 'Saved';
+  setCopyFeedback('JSON downloaded.');
 }
 
 function setCopyFeedback(text) {
@@ -592,7 +605,7 @@ function resetCopyFeedback() {
   elements.copyFeedback.textContent =
     'Everything stays on your device. Nothing is sent anywhere.';
   elements.copyButton.classList.remove('button--copied');
-  elements.copyButton.textContent = 'Copy JSON';
+  elements.copyButton.textContent = 'Download JSON';
 }
 
 async function handleScreenshotClick() {
