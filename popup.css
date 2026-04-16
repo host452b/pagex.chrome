@@ -273,6 +273,19 @@ select {
   background: rgba(171, 58, 44, 0.08);
 }
 
+.button--stop {
+  background: rgba(171, 58, 44, 0.08);
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: annotation-pulse 1.3s ease-in-out infinite;
+}
+
+.button--stop:not(:disabled):active {
+  transform: translateY(0);
+  background: rgba(171, 58, 44, 0.16);
+  animation: none;
+}
+
 .button--copied {
   background: rgba(42, 125, 74, 0.12);
   border-color: rgba(42, 125, 74, 0.3);

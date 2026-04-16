@@ -54,7 +54,11 @@ async function init() {
 
 function bindEvents() {
   elements.parseButton.addEventListener('click', () => {
-    void handleParseClick();
+    if (isRunning()) {
+      void handleStopClick();
+    } else {
+      void handleParseClick();
+    }
   });
 
   elements.copyButton.addEventListener('click', () => {
@@ -298,35 +302,45 @@ function buildSummaryNote(summary) {
   return noteParts.join(' • ');
 }
 
+function isRunning() {
+  if (viewState.isStartingParse) {
+    return true;
+  }
+
+  if (viewState.parseState && viewState.parseState.status === 'running') {
+    return true;
+  }
+
+  return false;
+}
+
 function renderButtons() {
   const canCopy = canCopyForSelectedTab(
     viewState.parseState,
     getCurrentSelectedTabId(),
   );
+  const running = isRunning();
+
+  elements.copyButton.disabled = !canCopy;
+
+  if (running) {
+    elements.parseButton.disabled = false;
+    elements.parseButton.textContent = 'Stop';
+    elements.parseButton.classList.remove('button--primary');
+    elements.parseButton.classList.add('button--stop');
+    return;
+  }
+
   const parseDisabled = isParseButtonDisabled({
     hasTabs: viewState.tabs.length > 0,
     isStartingParse: viewState.isStartingParse,
     parseState: viewState.parseState,
   });
-  let running = false;
-
-  if (viewState.isStartingParse) {
-    running = true;
-  }
-
-  if (viewState.parseState && viewState.parseState.status === 'running') {
-    running = true;
-  }
 
   elements.parseButton.disabled = parseDisabled;
-  elements.copyButton.disabled = !canCopy;
-
-  if (running) {
-    elements.parseButton.textContent = 'Extracting...';
-    return;
-  }
-
   elements.parseButton.textContent = 'Extract Page';
+  elements.parseButton.classList.remove('button--stop');
+  elements.parseButton.classList.add('button--primary');
 }
 
 async function handleParseClick() {
@@ -393,6 +407,24 @@ async function handleParseClick() {
     viewState.isStartingParse = false;
     renderButtons();
   }
+}
+
+async function handleStopClick() {
+  try {
+    await chrome.runtime.sendMessage({
+      type: PAGEX_MESSAGE_TYPES.STOP_PARSE,
+    });
+  } catch {
+    // Background may not respond — force local reset.
+  }
+
+  viewState.parseState = null;
+  viewState.isStartingParse = false;
+  elements.app.dataset.status = 'idle';
+  elements.statusText.textContent = 'Stopped';
+  elements.detailText.textContent =
+    'Extraction stopped. Click "Extract Page" to try again.';
+  render();
 }
 
 async function ensureSelectedTabPermission(selectedTabId) {

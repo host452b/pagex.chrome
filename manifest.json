@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Pagex",
   "version": "0.2.0",
-  "description": "Extract page structure, styles, expanded content, and text into AI-friendly JSON.",
+  "description": "Extract page content into AI-ready JSON, capture full-page screenshots, and export cookies — all offline.",
   "permissions": [
     "activeTab",
     "cookies",

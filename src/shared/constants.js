@@ -2,6 +2,7 @@ export const PAGEX_STATE_KEY = 'pagex.parseState';
 
 export const PAGEX_MESSAGE_TYPES = {
   START_PARSE: 'pagex/start-parse',
+  STOP_PARSE: 'pagex/stop-parse',
 };
 
 export const PAGEX_STAGE_LABELS = {

@@ -46,6 +46,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === PAGEX_MESSAGE_TYPES.STOP_PARSE) {
+    const active = parseSingleFlight.getActive();
+
+    if (active) {
+      parseSingleFlight.finish(active.requestId);
+    }
+
+    void chrome.storage.session
+      .remove(PAGEX_STATE_KEY)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+
+    return true;
+  }
+
   return false;
 });
 
