@@ -1,5 +1,28 @@
+# Dependencies
 node_modules/
-.DS_Store
-*.log
+
+# Build / release artifacts
 release/
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude / Superpowers
 .superpowers/
+.claude/
