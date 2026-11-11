@@ -47,7 +47,7 @@ Pagex uses the following Chrome permissions:
 - `storage`
 - `tabs`
 - `webNavigation`
-- optional host permissions, requested only when the user interacts with a selected site origin
+- optional host permissions, requested once the first time you extract or use a page tool, and revocable in Settings
 
 These permissions are used to:
 
@@ -91,7 +91,7 @@ If a future version adds remote processing, analytics, or cloud sync, this priva
 You can:
 
 - choose which tabs to parse, and which single tab to screenshot or export cookies from
-- deny optional site access, or grant access to all sites once from Settings and revoke it there at any time
+- deny site access when asked (only the active tab can then be read), or revoke it at any time in Settings
 - turn automatic download off in Settings
 - stop a running extraction at any time
 - close the popup without downloading output

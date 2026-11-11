@@ -5,7 +5,7 @@
 - [ ] Run `npm run generate:store-assets`
 - [ ] Run `npm run package`
 - [ ] Confirm upload archive exists:
-  - `release/pagex-v0.4.0.zip`
+  - `release/pagex-v0.4.1.zip`
 - [ ] Confirm runtime icons exist:
   - `assets/icons/pagex-16.png`
   - `assets/icons/pagex-32.png`
@@ -69,7 +69,7 @@
   - `storage`
   - `tabs`
   - `webNavigation`
-  - optional site access by origin request
+  - optional site access, requested once on first use (revocable in Settings)
 - [ ] Fill permission justifications:
 
 **activeTab:**

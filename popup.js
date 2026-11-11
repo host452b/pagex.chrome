@@ -4,6 +4,8 @@ import {
   PAGEX_GUIDE_DISMISSED_KEY,
   PAGEX_JOB_KEY,
   PAGEX_MESSAGE_TYPES,
+  PAGEX_PENDING_BATCH_KEY,
+  PAGEX_SELECTION_KEY,
   PAGEX_SETTINGS_KEY,
 } from './src/shared/constants.js';
 import { PAGEX_ERROR_CODES } from './src/shared/error-codes.js';
@@ -41,6 +43,7 @@ import { createMotion } from './src/popup/jelly.js';
 import { captureFullPage } from './src/popup/screenshot.js';
 
 const ALL_SITES = ['<all_urls>'];
+const SELECTION_MAX_AGE_MS = PAGEX_BATCH_LIMITS.selectionMaxAgeMs;
 
 const ERROR_MESSAGE_KEYS = {
   [PAGEX_ERROR_CODES.NO_URL]: 'errNoUrl',
@@ -80,7 +83,7 @@ const view = {
   settings: { ...PAGEX_DEFAULT_SETTINGS },
   // Local, pre-job phase: 'idle' | 'permission' | 'starting'.
   phase: 'idle',
-  permissionSiteCount: 0,
+  hasAllSites: false,
   pickerHintOverride: '',
   localError: '',
   // Jobs this popup saw running; only those may auto-download on finish.
@@ -138,7 +141,7 @@ async function init() {
 
   const [tabs, sessionData, localData, fileAccessAllowed, hasAllSites] = await Promise.all([
     chrome.tabs.query({ currentWindow: true }),
-    chrome.storage.session.get(PAGEX_JOB_KEY),
+    chrome.storage.session.get([PAGEX_JOB_KEY, PAGEX_SELECTION_KEY]),
     chrome.storage.local.get([PAGEX_SETTINGS_KEY, PAGEX_GUIDE_DISMISSED_KEY]),
     chrome.extension.isAllowedFileSchemeAccess().catch(() => false),
     chrome.permissions.contains({ origins: ALL_SITES }).catch(() => false),
@@ -149,7 +152,13 @@ async function init() {
   view.job = sessionData[PAGEX_JOB_KEY] || null;
   view.settings = { ...PAGEX_DEFAULT_SETTINGS, ...(localData[PAGEX_SETTINGS_KEY] || {}) };
   view.entries = buildTabEntries(tabs, activeTab ? activeTab.id : null, { fileAccessAllowed });
-  view.selected = new Set(getDefaultSelection(view.entries, view.job));
+  view.selected = new Set(
+    getDefaultSelection(view.entries, view.job, {
+      saved: sessionData[PAGEX_SELECTION_KEY] || null,
+      maxAgeMs: SELECTION_MAX_AGE_MS,
+    }),
+  );
+  view.hasAllSites = hasAllSites;
 
   if (view.job && view.job.status === 'running') {
     view.watchedJobIds.add(view.job.jobId);
@@ -185,6 +194,7 @@ function bindEvents() {
       toggleSelectAll(view.entries, [...view.selected], PAGEX_BATCH_LIMITS.maxTabs),
     );
     view.localError = '';
+    saveSelection();
     render();
   });
 
@@ -210,6 +220,7 @@ function bindEvents() {
     }
 
     view.localError = '';
+    saveSelection();
     render();
   });
 
@@ -305,32 +316,48 @@ async function handleExtract() {
 
   const urls = tabIds.map((tabId) => getEntry(tabId).url);
   const patterns = collectOriginPatterns(urls);
+  const pendingId = crypto.randomUUID();
 
-  if (patterns.length > 0) {
+  saveSelection();
+
+  if (patterns.length > 0 && !view.hasAllSites) {
     view.phase = 'permission';
-    view.permissionSiteCount = patterns.length;
     render();
 
-    // Called straight from the click so Chrome treats it as a user gesture.
-    // Already-granted origins resolve immediately without a prompt.
+    // Chrome's prompt can close this popup before the request resolves.
+    // Saving the batch first lets the background worker start it by itself
+    // the moment access is granted, so one click is always enough.
+    void chrome.storage.session
+      .set({ [PAGEX_PENDING_BATCH_KEY]: { id: pendingId, tabIds, createdAt: Date.now() } })
+      .catch(() => {});
+
+    // Ask once for all sites, straight from the click (user gesture).
     let granted = false;
 
     try {
-      granted = await chrome.permissions.request({ origins: patterns });
+      granted = await chrome.permissions.request({ origins: ALL_SITES });
     } catch {
       granted = false;
     }
 
-    if (!granted) {
+    if (granted) {
+      view.hasAllSites = true;
+      dom.allSitesToggle.checked = true;
+    } else {
+      void chrome.storage.session.remove(PAGEX_PENDING_BATCH_KEY).catch(() => {});
+
       const allowed = await Promise.all(
         patterns.map((pattern) =>
           chrome.permissions.contains({ origins: [pattern] }).catch(() => false),
         ),
       );
       const allowedPatterns = new Set(patterns.filter((_, index) => allowed[index]));
-      const anyReadable = urls.some((url) => {
-        const pattern = buildOriginPermissionPattern(url);
-        return !pattern || allowedPatterns.has(pattern);
+      // The tab that was active when the popup opened is readable through
+      // activeTab even without a host grant.
+      const anyReadable = tabIds.some((tabId) => {
+        const entry = getEntry(tabId);
+        const pattern = buildOriginPermissionPattern(entry.url);
+        return !pattern || entry.isActive || allowedPatterns.has(pattern);
       });
 
       if (!anyReadable) {
@@ -350,6 +377,7 @@ async function handleExtract() {
     const response = await chrome.runtime.sendMessage({
       type: PAGEX_MESSAGE_TYPES.START_BATCH,
       tabIds,
+      pendingId,
     });
 
     if (response && response.ok) {
@@ -443,12 +471,14 @@ async function handleAllSitesToggle() {
   try {
     if (wantAll) {
       const granted = await chrome.permissions.request({ origins: ALL_SITES });
+      view.hasAllSites = granted;
       dom.allSitesToggle.checked = granted;
       dom.allSitesHint.textContent = granted
         ? t('settingAllSitesHint')
         : t('settingAllSitesDenied');
     } else {
       await chrome.permissions.remove({ origins: ALL_SITES });
+      view.hasAllSites = false;
       dom.allSitesHint.textContent = t('settingAllSitesHint');
     }
   } catch {
@@ -459,17 +489,23 @@ async function handleAllSitesToggle() {
 }
 
 async function ensureSiteAccess(url) {
-  const pattern = buildOriginPermissionPattern(url);
-
-  if (!pattern) {
+  if (!buildOriginPermissionPattern(url) || view.hasAllSites) {
     return true;
   }
 
   try {
-    return await chrome.permissions.request({ origins: [pattern] });
+    view.hasAllSites = await chrome.permissions.request({ origins: ALL_SITES });
+    dom.allSitesToggle.checked = view.hasAllSites;
+    return view.hasAllSites;
   } catch {
     return false;
   }
+}
+
+function saveSelection() {
+  chrome.storage.session
+    .set({ [PAGEX_SELECTION_KEY]: { tabIds: [...view.selected], savedAt: Date.now() } })
+    .catch(() => {});
 }
 
 async function handleScreenshot() {
@@ -611,7 +647,12 @@ function render() {
   renderRun();
   renderTools();
   syncTicker();
-  syncAgents();
+
+  try {
+    syncAgents();
+  } catch {
+    // Decoration only; never let it affect extraction or downloads.
+  }
 }
 
 // One cursor per tab being read; they leave when the job stops or ends.
@@ -830,7 +871,7 @@ function renderRun() {
   if (view.phase === 'permission') {
     status = 'permission';
     pill = t('statusPermission');
-    message = t('runPermission', view.permissionSiteCount || 1);
+    message = t('runPermission');
   } else if (view.localError) {
     status = 'error';
     pill = t('statusFailed');

@@ -50,7 +50,7 @@
     "message": "Press Extract"
   },
   "guideStep2Body": {
-    "message": "The first time on a site, Chrome asks for access. Pagex only reads the pages you tick."
+    "message": "The first time, Chrome asks once to let Pagex read websites. Choose Allow and extraction starts right away; it will not ask again."
   },
   "guideStep3Title": {
     "message": "Get your files"
@@ -74,7 +74,7 @@
     "message": "Allow reading all sites"
   },
   "settingAllSitesHint": {
-    "message": "Skips the per-site prompt. Turn it off anytime to go back to asking."
+    "message": "Granted the first time you extract, so Chrome stops asking. Turn off to revoke."
   },
   "settingAllSitesDenied": {
     "message": "Chrome did not grant access to all sites."
@@ -212,7 +212,7 @@
     "message": "Something went wrong while reading this page."
   },
   "errPermissionDeniedAll": {
-    "message": "Chrome didn't grant access to these sites, so nothing was extracted."
+    "message": "Pagex can't read these pages without access. Press Extract again and choose Allow."
   },
   "errConnect": {
     "message": "Couldn't reach Pagex in the background. Close and reopen this popup."
@@ -267,12 +267,7 @@
     "message": "None of the ticked pages can be read. See the reason under each one."
   },
   "runPermission": {
-    "message": "Chrome is asking for access to $P1$ site(s). Choose Allow to continue.",
-    "placeholders": {
-      "p1": {
-        "content": "$1"
-      }
-    }
+    "message": "Chrome is asking once for access to websites. Choose Allow and extraction starts right away, even if this popup closes."
   },
   "runRunning": {
     "message": "$P1$ of $P2$ finished · $P3$s. You can close this popup; work continues in the background.",

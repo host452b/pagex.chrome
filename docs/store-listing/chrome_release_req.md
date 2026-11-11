@@ -1,4 +1,4 @@
-# Chrome Web Store 发布资料 — Pagex v0.4.0
+# Chrome Web Store 发布资料 — Pagex v0.4.1
 
 > 生成日期：2026-11-11
 > 此文件包含 Dashboard 所有需要填写的字段，发布时逐项复制粘贴。
@@ -136,7 +136,7 @@ Inspects frame coverage for the current tab using webNavigation.getAllFrames to 
 
 
 **需请求主机权限的理由：**
-Optional host permissions are requested per-origin only when the user chooses to extract, screenshot, or export cookies from a specific site. The extension uses optional_host_permissions with <all_urls> so that Chrome prompts the user for each new origin. No blanket host access is granted at install time.
+Host access is optional (optional_host_permissions: <all_urls>) and is never granted at install time. The first time the user presses Extract, Screenshot, or Export cookies, the extension asks once for access to websites so it can read the tabs the user ticked, including background tabs. The user can decline (only the active tab is then readable via activeTab) or revoke access at any time from the extension's Settings panel.
 
 
 ### 远程代码

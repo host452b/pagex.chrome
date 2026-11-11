@@ -38,6 +38,26 @@ test('getDefaultSelection prefers the last job tabs, else the active tab', () =>
   assert.deepEqual(getDefaultSelection(buildTabEntries(tabs, 1), null), []);
 });
 
+test('getDefaultSelection restores a recent selection so a closed popup keeps its ticks', () => {
+  const entries = buildTabEntries(tabs, 3);
+  const now = 1_000_000;
+  const saved = { tabIds: [2, 3, 1], savedAt: now - 30_000 };
+  const finishedJob = { status: 'completed', tabs: [{ tabId: 3 }] };
+
+  assert.deepEqual(getDefaultSelection(entries, null, { saved, now }), [2, 3]);
+  assert.deepEqual(getDefaultSelection(entries, finishedJob, { saved, now }), [2, 3]);
+  assert.deepEqual(
+    getDefaultSelection(entries, null, { saved: { ...saved, savedAt: now - 600_000 }, now }),
+    [3],
+    'an old selection is ignored',
+  );
+  assert.deepEqual(
+    getDefaultSelection(entries, { status: 'running', tabs: [{ tabId: 2 }] }, { saved, now }),
+    [2],
+    'a running job wins',
+  );
+});
+
 test('selection helpers ignore unreadable tabs and respect the batch limit', () => {
   const entries = buildTabEntries(tabs, 3);
 

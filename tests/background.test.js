@@ -5,14 +5,18 @@ import { decompressText } from '../src/shared/compression.js';
 import { PAGEX_JOB_KEY, PAGEX_MESSAGE_TYPES } from '../src/shared/constants.js';
 
 // Minimal in-memory stand-in for the chrome.* APIs background.js uses.
-function createChromeMock({ tabs, collect, session: initialSession = {}, quotaBytes, bytesInUse, failResultWrites = false }) {
+function createChromeMock({ tabs, collect, session: initialSession = {}, quotaBytes, bytesInUse, failResultWrites = false, granted = true }) {
   const session = { ...initialSession };
-  const listeners = { message: null };
+  const listeners = { message: null, permissionAdded: null, tabUpdated: new Set() };
   const calls = { abort: 0 };
 
   const chrome = {
     runtime: {
       onMessage: { addListener: (fn) => { listeners.message = fn; } },
+    },
+    permissions: {
+      contains: async () => granted,
+      onAdded: { addListener: (fn) => { listeners.permissionAdded = fn; } },
     },
     tabs: {
       get: async (tabId) => {
@@ -23,6 +27,17 @@ function createChromeMock({ tabs, collect, session: initialSession = {}, quotaBy
         }
 
         return { id: tabId, ...tab };
+      },
+      reload: async (tabId) => {
+        calls.reload = (calls.reload || 0) + 1;
+        setTimeout(() => {
+          Object.assign(tabs[tabId], { discarded: false, status: 'complete' });
+          for (const fn of [...listeners.tabUpdated]) fn(tabId, { status: 'complete' }, { id: tabId, ...tabs[tabId] });
+        }, 5);
+      },
+      onUpdated: {
+        addListener: (fn) => listeners.tabUpdated.add(fn),
+        removeListener: (fn) => listeners.tabUpdated.delete(fn),
       },
       onRemoved: { addListener: () => {} },
     },
@@ -65,7 +80,7 @@ function createChromeMock({ tabs, collect, session: initialSession = {}, quotaBy
       listeners.message(message, {}, resolve);
     });
 
-  return { chrome, session, send, calls };
+  return { chrome, session, send, calls, listeners };
 }
 
 function okFrame(title) {
@@ -294,4 +309,70 @@ test('a worker restart marks a job left running as interrupted', async () => {
   assert.equal(job.status, 'completed');
   assert.deepEqual(job.tabs.map((tab) => tab.status), ['done', 'error']);
   assert.equal(job.tabs[1].errorCode, 'interrupted');
+});
+
+test('a batch saved before the permission prompt starts by itself once access is granted', async () => {
+  const mock = createChromeMock({
+    tabs: { 1: { title: 'A', url: 'https://a.example/' }, 2: { title: 'B', url: 'https://b.example/' } },
+    collect: async (tabId) => okFrame(tabId === 1 ? 'a' : 'b'),
+    session: { 'pagex.pendingBatch': { id: 'pend-1', tabIds: [1, 2], createdAt: Date.now() } },
+  });
+  await loadBackground(mock);
+
+  // The popup was closed by the prompt: only the permission event arrives.
+  mock.listeners.permissionAdded({ origins: ['<all_urls>'] });
+  const job = await waitFor(finishedJob(mock));
+
+  assert.deepEqual(job.tabs.map((tab) => tab.status), ['done', 'done']);
+  assert.equal('pagex.pendingBatch' in mock.session, false, 'the pending batch is consumed');
+});
+
+test('the popup and the permission event starting the same batch run it only once', async () => {
+  let collects = 0;
+  const mock = createChromeMock({
+    tabs: { 1: { title: 'A', url: 'https://a.example/' } },
+    collect: async () => {
+      collects += 1;
+      return okFrame('a');
+    },
+    session: { 'pagex.pendingBatch': { id: 'pend-2', tabIds: [1], createdAt: Date.now() } },
+  });
+  await loadBackground(mock);
+
+  mock.listeners.permissionAdded({ origins: ['<all_urls>'] });
+  const fromPopup = await mock.send({ type: PAGEX_MESSAGE_TYPES.START_BATCH, tabIds: [1], pendingId: 'pend-2' });
+  const job = await waitFor(finishedJob(mock));
+
+  assert.equal(fromPopup.ok, true);
+  assert.equal(fromPopup.jobId, job.jobId);
+  assert.equal(collects, 1);
+});
+
+test('a stale or ungranted pending batch is not started', async () => {
+  const mock = createChromeMock({
+    tabs: { 1: { title: 'A', url: 'https://a.example/' } },
+    collect: async () => okFrame('a'),
+    granted: false,
+    session: { 'pagex.pendingBatch': { id: 'pend-3', tabIds: [1], createdAt: Date.now() } },
+  });
+  await loadBackground(mock);
+
+  mock.listeners.permissionAdded({ origins: ['https://other.example/*'] });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(mock.session[PAGEX_JOB_KEY], undefined);
+});
+
+test('a tab discarded by Memory Saver is reloaded before it is read', async () => {
+  const mock = createChromeMock({
+    tabs: { 1: { title: 'Sleepy', url: 'https://sleepy.example/', discarded: true, status: 'unloaded' } },
+    collect: async () => okFrame('sleepy'),
+  });
+  await loadBackground(mock);
+
+  await mock.send({ type: PAGEX_MESSAGE_TYPES.START_BATCH, tabIds: [1] });
+  const job = await waitFor(finishedJob(mock));
+
+  assert.equal(mock.calls.reload, 1);
+  assert.equal(job.tabs[0].status, 'done');
 });

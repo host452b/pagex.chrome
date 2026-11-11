@@ -1,6 +1,8 @@
 import {
+  PAGEX_ALL_SITES,
   PAGEX_BATCH_LIMITS,
   PAGEX_JOB_KEY,
+  PAGEX_PENDING_BATCH_KEY,
   PAGEX_MESSAGE_TYPES,
   PAGEX_PARSE_OPTIONS,
   PAGEX_SUBFRAME_OPTION_OVERRIDES,
@@ -43,7 +45,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === PAGEX_MESSAGE_TYPES.START_BATCH) {
-    void handleStartBatch(message.tabIds)
+    void startBatchOnce(message.pendingId, message.tabIds)
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -87,6 +89,61 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     );
   }
 });
+
+// Chrome's permission prompt can close the popup before it gets to send
+// START_BATCH. The popup saved the batch first, so start it from here as
+// soon as access is granted. The popup, if still open, sends the same
+// pendingId and gets the same job back.
+chrome.permissions.onAdded.addListener(() => {
+  void startPendingBatch();
+});
+
+const pendingStarts = new Map();
+
+function startBatchOnce(pendingId, tabIds) {
+  if (typeof pendingId !== 'string' || !pendingId) {
+    return handleStartBatch(tabIds);
+  }
+
+  if (!pendingStarts.has(pendingId)) {
+    pendingStarts.set(
+      pendingId,
+      (async () => {
+        await chrome.storage.session.remove(PAGEX_PENDING_BATCH_KEY).catch(() => {});
+        return handleStartBatch(tabIds);
+      })(),
+    );
+  }
+
+  return pendingStarts.get(pendingId);
+}
+
+async function startPendingBatch() {
+  let pending = null;
+
+  try {
+    pending = (await chrome.storage.session.get(PAGEX_PENDING_BATCH_KEY))[PAGEX_PENDING_BATCH_KEY];
+  } catch {
+    return;
+  }
+
+  if (!pending || typeof pending.id !== 'string' || !Array.isArray(pending.tabIds)) {
+    return;
+  }
+
+  if (!(Date.now() - pending.createdAt <= PAGEX_BATCH_LIMITS.pendingBatchMaxAgeMs)) {
+    await chrome.storage.session.remove(PAGEX_PENDING_BATCH_KEY).catch(() => {});
+    return;
+  }
+
+  const granted = await chrome.permissions
+    .contains({ origins: PAGEX_ALL_SITES })
+    .catch(() => false);
+
+  if (granted) {
+    await startBatchOnce(pending.id, pending.tabIds).catch(() => {});
+  }
+}
 
 // If the service worker was stopped mid-job, the stored job still says
 // "running" but nothing is driving it. Mark it as interrupted.
@@ -243,12 +300,18 @@ async function runTab(jobId, tabId) {
   try {
     await setStage('preparing');
 
-    const tab = await chrome.tabs.get(tabId);
+    let tab = await chrome.tabs.get(tabId);
     const fileAccessAllowed = await isFileAccessAllowed();
     const eligibility = classifyTabUrl(tab.url, { fileAccessAllowed });
 
     if (!eligibility.ok) {
       throw new PagexError(eligibility.code);
+    }
+
+    // Memory Saver discards background tabs; there is no page to read until
+    // the tab is loaded again.
+    if (tab.discarded || tab.status === 'unloaded') {
+      tab = await reloadAndWait(tabId, PAGEX_BATCH_LIMITS.tabLoadTimeoutMs);
     }
 
     assertActive(jobId);
@@ -348,11 +411,24 @@ async function collectPageInFrame(options) {
 async function collectFrames(tabId, jobId) {
   const mainOptions = { ...PAGEX_PARSE_OPTIONS, runToken: jobId };
   const subFrameOptions = { ...mainOptions, ...PAGEX_SUBFRAME_OPTION_OVERRIDES };
-  const mainPromise = chrome.scripting.executeScript({
-    target: { tabId, frameIds: [0] },
-    func: collectPageInFrame,
-    args: [mainOptions],
-  });
+  const mainPromise = withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: collectPageInFrame,
+      args: [mainOptions],
+    }),
+    PAGEX_BATCH_LIMITS.mainFrameTimeoutMs,
+    'main frame timed out',
+    () => {
+      chrome.scripting
+        .executeScript({
+          target: { tabId, frameIds: [0] },
+          func: (token) => globalThis.pagexCollector?.abort?.(token),
+          args: [jobId],
+        })
+        .catch(() => {});
+    },
+  );
 
   const discovered = await getDiscoveredFrames(tabId);
   const subFrameIds = discovered
@@ -405,6 +481,52 @@ async function collectSubFrame(tabId, frameId, options) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function withTimeout(promise, timeoutMs, message, onTimeout) {
+  let timer = 0;
+
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        onTimeout?.();
+        reject(new Error(message));
+      }, timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+// Reloads a discarded tab and resolves with it once it has finished loading.
+function reloadAndWait(tabId, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let timer = 0;
+    let settled = false;
+
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      callback(value);
+    };
+
+    function onUpdated(updatedTabId, changeInfo, updatedTab) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        finish(resolve, updatedTab);
+      }
+    }
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    timer = setTimeout(
+      () => finish(reject, new Error('tab load timed out')),
+      timeoutMs,
+    );
+    chrome.tabs.reload(tabId).catch((error) => finish(reject, error));
+  });
 }
 
 async function getDiscoveredFrames(tabId) {

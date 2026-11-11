@@ -72,7 +72,7 @@ The exported JSON payload can include:
 - `storage`: keeps batch status and compressed results in session storage (cleared when the browser closes) and saves your settings
 - `tabs`: reads the selected tab information in the popup
 - `webNavigation`: checks frame coverage for the current tab
-- optional host access: requested only when you interact with a selected site origin
+- optional host access: requested once, the first time you extract or use a page tool, and revocable in Settings; nothing is granted at install
 
 ## Suggested screenshots
 

@@ -50,7 +50,7 @@
     "message": "点击提取"
   },
   "guideStep2Body": {
-    "message": "首次访问某个网站时 Chrome 会请求授权，Pagex 只读取你勾选的页面。"
+    "message": "第一次使用时 Chrome 会询问一次是否允许 Pagex 读取网站，选择「允许」后立即开始提取，之后不再询问。"
   },
   "guideStep3Title": {
     "message": "拿到文件"
@@ -74,7 +74,7 @@
     "message": "允许读取所有网站"
   },
   "settingAllSitesHint": {
-    "message": "不再逐个网站弹出授权，随时可关闭，恢复逐站询问。"
+    "message": "首次提取时授权一次，之后不再弹窗。关闭即撤销授权。"
   },
   "settingAllSitesDenied": {
     "message": "Chrome 未授予读取所有网站的权限。"
@@ -212,7 +212,7 @@
     "message": "读取该页面时出错。"
   },
   "errPermissionDeniedAll": {
-    "message": "Chrome 未授予这些网站的访问权限，未提取任何内容。"
+    "message": "未获得访问权限，无法读取这些页面。请再次点击提取并选择「允许」。"
   },
   "errConnect": {
     "message": "无法连接 Pagex 后台，请关闭并重新打开 popup。"
@@ -267,12 +267,7 @@
     "message": "勾选的页面都无法读取，原因见各页面下方。"
   },
   "runPermission": {
-    "message": "Chrome 正在请求访问 $P1$ 个网站，选择「允许」即可继续。",
-    "placeholders": {
-      "p1": {
-        "content": "$1"
-      }
-    }
+    "message": "Chrome 正在询问一次网站访问权限。选择「允许」后会立即开始提取，即使 popup 被关闭也会继续。"
   },
   "runRunning": {
     "message": "已完成 $P1$/$P2$ · $P3$ 秒。可以关闭 popup，提取会在后台继续。",

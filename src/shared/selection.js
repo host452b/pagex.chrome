@@ -50,12 +50,39 @@ export function buildTabEntries(tabs, activeTabId, { fileAccessAllowed = false }
   return entries;
 }
 
-// On open: keep the last job's tabs ticked so its results stay in view;
-// otherwise tick the active tab if it can be read.
-export function getDefaultSelection(entries, job) {
+// On open: a running job's tabs; else what was ticked moments ago (the
+// popup may have been closed by Chrome's permission prompt); else the last
+// job's tabs; else the active tab if it can be read.
+export function getDefaultSelection(
+  entries,
+  job,
+  { saved = null, now = Date.now(), maxAgeMs = 120000 } = {},
+) {
   const eligibleIds = new Set(
     entries.filter((entry) => entry.eligible).map((entry) => entry.tabId),
   );
+  const keepEligible = (tabIds) => tabIds.filter((tabId) => eligibleIds.has(tabId));
+
+  if (job && job.status === 'running' && Array.isArray(job.tabs)) {
+    const running = keepEligible(job.tabs.map((tab) => tab.tabId));
+
+    if (running.length > 0) {
+      return running;
+    }
+  }
+
+  if (
+    saved &&
+    Array.isArray(saved.tabIds) &&
+    Number.isFinite(saved.savedAt) &&
+    now - saved.savedAt <= maxAgeMs
+  ) {
+    const recent = keepEligible(saved.tabIds);
+
+    if (recent.length > 0) {
+      return recent;
+    }
+  }
 
   if (job && Array.isArray(job.tabs)) {
     const fromJob = job.tabs

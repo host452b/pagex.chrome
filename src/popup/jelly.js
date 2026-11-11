@@ -107,7 +107,15 @@ export function createMotion(root, { clip = null } = {}) {
     time += dt;
 
     for (const animator of [...animators]) {
-      if (!animator(dt, time)) {
+      let keep = false;
+
+      try {
+        keep = animator(dt, time);
+      } catch {
+        keep = false;
+      }
+
+      if (!keep) {
         animators.delete(animator);
       }
     }
@@ -603,15 +611,35 @@ export function createMotion(root, { clip = null } = {}) {
     ensureAgentLoop();
   }
 
+  // Motion is decoration: a failure must never stop the popup from
+  // updating its text, progress, or starting downloads.
+  const guard = (fn, fallback = () => {}) => (...args) => {
+    try {
+      return fn(...args);
+    } catch {
+      try {
+        return fallback(...args);
+      } catch {
+        return undefined;
+      }
+    }
+  };
+
   return {
     reduced,
-    jiggle,
-    progress,
-    resetProgress,
-    countTo,
-    setText,
-    syncAgents,
-    celebrate,
+    jiggle: guard(jiggle),
+    progress: guard(progress, (element, fraction) => {
+      element.style.width = `${clamp(fraction, 0, 1) * 100}%`;
+    }),
+    resetProgress: guard(resetProgress),
+    countTo: guard(countTo, (element, value, format = (n) => String(Math.round(n))) => {
+      element.textContent = format(value);
+    }),
+    setText: guard(setText, (element, text) => {
+      element.textContent = text;
+    }),
+    syncAgents: guard(syncAgents),
+    celebrate: guard(celebrate),
     get agentCount() {
       return agents.size;
     },

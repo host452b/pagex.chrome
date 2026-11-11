@@ -19,7 +19,7 @@ test.afterEach(() => {
   }
 });
 
-async function setupPopup({ tabs, job = null }) {
+async function setupPopup({ tabs, job = null, motion = false, session: extraSession = {} }) {
   const html = await readFile(path.join(root, 'popup.html'), 'utf8');
   const messages = JSON.parse(await readFile(path.join(root, '_locales/en/messages.json'), 'utf8'));
   const dom = new JSDOM(html.replace(/<script[^>]*><\/script>/, ''), {
@@ -29,7 +29,7 @@ async function setupPopup({ tabs, job = null }) {
   const { window } = dom;
   openWindows.push(window);
 
-  const session = job ? { [PAGEX_JOB_KEY]: job } : {};
+  const session = job ? { [PAGEX_JOB_KEY]: job, ...extraSession } : { ...extraSession };
   const local = {};
   const sent = [];
   const requested = [];
@@ -69,7 +69,17 @@ async function setupPopup({ tabs, job = null }) {
     },
     storage: {
       session: {
-        get: async (key) => (key in session ? { [key]: session[key] } : {}),
+        get: async (keys) => {
+          const out = {};
+
+          for (const key of [].concat(keys)) {
+            if (key in session) out[key] = session[key];
+          }
+
+          return out;
+        },
+        set: async (values) => Object.assign(session, values),
+        remove: async (keys) => { for (const key of [].concat(keys)) delete session[key]; },
       },
       local: {
         get: async () => ({ ...local }),
@@ -87,6 +97,12 @@ async function setupPopup({ tabs, job = null }) {
     return 'blob:test';
   };
   window.URL.revokeObjectURL = () => {};
+
+  if (motion) {
+    window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(Date.now()), 4);
+    window.matchMedia = () => ({ matches: false });
+    window.HTMLElement.prototype.scrollIntoView = () => {};
+  }
 
   Object.assign(globalThis, {
     chrome,
@@ -160,8 +176,11 @@ test('extracting several tabs runs one batch and auto-downloads a ZIP', async ()
   document.getElementById('extractBtn').click();
   await waitFor(() => sent.length === 1);
 
-  assert.deepEqual(requested[0].sort(), ['https://docs.example.com/*', 'https://news.example.com/*']);
-  assert.deepEqual(sent[0], { type: PAGEX_MESSAGE_TYPES.START_BATCH, tabIds: [12, 11] });
+  assert.deepEqual(requested[0], ['<all_urls>'], 'asks once for all sites');
+  assert.equal(sent[0].type, PAGEX_MESSAGE_TYPES.START_BATCH);
+  assert.deepEqual(sent[0].tabIds, [12, 11]);
+  assert.equal(sent[0].pendingId, session['pagex.pendingBatch'].id, 'the batch was saved before the prompt');
+  assert.deepEqual(session['pagex.selection'].tabIds.sort(), [11, 12]);
 
   const running = {
     jobId: 'job-1',
@@ -235,4 +254,46 @@ test('a failed tab shows a plain-language reason and a partial status', async ()
   assert.match(failedRow.querySelector('.tab-row__meta').textContent, /took too long/);
   assert.equal(failedRow.title, 'raw detail');
   assert.equal(text(document, 'downloadLabel'), 'Download JSON');
+});
+
+test('reopening right after the permission prompt closed the popup keeps every ticked tab', async () => {
+  const { document } = await setupPopup({
+    tabs: TABS,
+    session: { 'pagex.selection': { tabIds: [11, 12], savedAt: Date.now() - 5000 } },
+  });
+
+  assert.equal(text(document, 'selectionCount'), '2 of 2 selected');
+  assert.equal(text(document, 'extractBtn'), 'Extract 2 pages');
+});
+
+test('with jelly motion on, a multi-tab batch still downloads every page in the ZIP', async () => {
+  const { window, document, downloads, session, pushJob } = await setupPopup({ tabs: TABS, motion: true });
+  const docsCheckbox = document.querySelector('.tab-row__check[data-tab-id="11"]');
+
+  docsCheckbox.checked = true;
+  docsCheckbox.dispatchEvent(new window.Event('change', { bubbles: true }));
+  document.getElementById('extractBtn').click();
+  await waitFor(() => document.getElementById('app').classList.contains('motion-on'));
+
+  const base = { jobId: 'job-m', startedAt: new Date(2026, 10, 11, 11, 0, 0).toISOString() };
+  const tab = (tabId, url, status, extra = {}) => ({ tabId, url, status, stageKey: status === 'running' ? 'collecting' : status, ...extra });
+  pushJob({ ...base, status: 'running', tabs: [tab(12, TABS[1].url, 'running'), tab(11, TABS[0].url, 'running')] });
+  await waitFor(() => document.querySelectorAll('.swarm__agent').length === 2);
+
+  session['pagex.result.job-m.12'] = await compressText('{"title":"News"}');
+  session['pagex.result.job-m.11'] = await compressText('{"title":"Docs"}');
+  const summary = { elementCount: 5, resultSizeBytes: 100 };
+  pushJob({
+    ...base,
+    status: 'completed',
+    tabs: [
+      tab(12, TABS[1].url, 'done', { resultKey: 'pagex.result.job-m.12', summary }),
+      tab(11, TABS[0].url, 'done', { resultKey: 'pagex.result.job-m.11', summary }),
+    ],
+  });
+
+  await waitFor(() => downloads.length === 1);
+  const archive = unzipSync(new Uint8Array(await downloads[0].blob.arrayBuffer()));
+  assert.equal(Object.keys(archive).length, 2, 'both pages are in the ZIP');
+  await waitFor(() => document.querySelectorAll('.swarm__agent').length === 0, 5000);
 });

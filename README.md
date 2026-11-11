@@ -15,7 +15,7 @@ Pagex is a Chrome Manifest V3 extension that extracts the current page into AI-f
 - 通过自动滚动触发部分 lazy-loaded 内容 / trigger lazy-loaded content by auto-scrolling the page
 - 采集 DOM 与 shadow DOM，并输出结构化 JSON / collect DOM and shadow DOM nodes into structured JSON
 - 合并可访问 iframe 结果，并显式标记跳过或失败的 frame / merge accessible iframe results and mark skipped or failed frames explicitly
-- 按选中站点的 origin 动态申请权限（多个站点合并为一次授权）；也可在设置中一次性授权所有网站 / request site access per origin at parse time (one prompt for all selected sites), or grant all sites once from Settings
+- 首次提取时请求一次「读取所有网站」（可选权限，安装时不申请），之后不再弹窗；授权后后台自动开始，即使授权框关闭了 popup 也只需点一次；设置中可随时撤销 / asks once for access to all sites on the first extraction (optional permission, nothing at install), then never again; extraction starts on its own after you allow, so one click is enough even if the prompt closes the popup; revocable in Settings
 - 整页截图与 cookies.txt 导出（针对单个勾选的 tab）/ full-page screenshot and cookies.txt export for a single ticked tab
 - 默认导出更紧凑的结果，包含敏感属性过滤、URL scrub 和遍历预算 / export a more compact payload by default with sensitive attribute filtering, URL scrubbing, and traversal budgets
 
@@ -44,7 +44,7 @@ Pagex is a Chrome Manifest V3 extension that extracts the current page into AI-f
 1. 打开你想解析的网页。Open the page(s) you want to parse.
 2. 点击 `Pagex` 插件图标，当前 tab 已自动勾选。Click the `Pagex` icon; the current tab is already ticked.
 3. 需要批量时，多勾选几个 tab。Tick more tabs to extract several at once.
-4. 点击 `提取页面 / Extract page`。如果 Chrome 弹出权限请求，选择允许。Press `Extract`; approve the site access prompt if Chrome asks.
+4. 点击 `提取页面 / Extract page`。第一次使用时 Chrome 会询问一次网站访问权限，选择允许即自动开始。Press `Extract`; the first time, Chrome asks once for website access, and extraction starts as soon as you allow it.
 5. 可以关闭 popup，提取会在后台继续。You can close the popup; extraction continues in the background.
 6. 完成后自动下载（单页 JSON / 多页 ZIP），或点击 `下载 / Download`；每行也可单独下载。Files download automatically when done (JSON for one page, ZIP for several), or press `Download`; each row also has its own download button.
 
@@ -135,7 +135,8 @@ Current brand direction:
 ## Notes / 注意事项
 
 - `chrome://` 之类的浏览器内部页面无法注入脚本。Chrome internal pages such as `chrome://` cannot be scripted.
-- 插件按需申请站点权限，只在解析选中页面时请求对应 origin。The extension requests origin access on demand, only when you parse a selected site.
+- 站点权限是可选权限：首次提取（或首次使用截图/导出）时请求一次，可在设置中撤销。Site access is optional: requested once on first use and revocable in Settings.
+- 被浏览器「省内存」丢弃的后台标签页会先自动重新加载再读取。Tabs discarded by Memory Saver are reloaded before they are read.
 - 部分跨域 iframe 仍可能因为 Chrome 限制而被标记为跳过或失败。Some cross-origin iframes may still be marked as skipped or failed because Chrome can restrict frame injection even when the page itself is scriptable.
 - 默认导出的是压缩后的 AI 友好结构，不会携带完整样式表源码。The collector stores compact AI-friendly structure and style summaries, not full stylesheet source.
 - 结果里会对部分敏感属性做过滤，并去掉 `href` / `src` 中的 query 与 hash。Sensitive attributes are filtered, and exported `href` / `src` values have query strings and hashes removed.

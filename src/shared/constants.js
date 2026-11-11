@@ -2,6 +2,12 @@ export const PAGEX_JOB_KEY = 'pagex.job';
 export const PAGEX_RESULT_KEY_PREFIX = 'pagex.result.';
 export const PAGEX_SETTINGS_KEY = 'pagex.settings';
 export const PAGEX_GUIDE_DISMISSED_KEY = 'pagex.guideDismissed';
+// A batch the popup asked to start right before Chrome's permission prompt,
+// which can close the popup. The worker starts it once access is granted.
+export const PAGEX_PENDING_BATCH_KEY = 'pagex.pendingBatch';
+// The popup's ticked tabs, restored if it is reopened shortly after.
+export const PAGEX_SELECTION_KEY = 'pagex.selection';
+export const PAGEX_ALL_SITES = Object.freeze(['<all_urls>']);
 
 export const PAGEX_MESSAGE_TYPES = {
   START_BATCH: 'pagex/start-batch',
@@ -28,6 +34,13 @@ export const PAGEX_BATCH_LIMITS = Object.freeze({
   maxSubFrames: 25,
   // Must exceed the sub-frame hardTimeoutMs plus injection time.
   subFrameTimeoutMs: 11000,
+  // Outer limit for the main frame, beyond the in-page hard timeout, for
+  // pages that never answer (e.g. a frozen background tab).
+  mainFrameTimeoutMs: 23000,
+  // Discarded tabs are reloaded before reading; give up after this long.
+  tabLoadTimeoutMs: 20000,
+  pendingBatchMaxAgeMs: 120000,
+  selectionMaxAgeMs: 120000,
 });
 
 // Iframes get smaller budgets than the main frame so a slow embed cannot
