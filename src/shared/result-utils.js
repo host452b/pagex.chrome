@@ -1,4 +1,4 @@
-function formatBytes(byteLength) {
+export function formatBytes(byteLength) {
   if (!Number.isFinite(byteLength) || byteLength < 0) {
     return '0 B';
   }
@@ -46,8 +46,13 @@ export function buildResultSummary(result) {
   let elementCount = 0;
   let totalClicks = 0;
   let warningCount = 0;
+  let pageHidden = false;
 
   for (const frame of frames) {
+    if (frame && frame.frameId === 0 && frame.pageHidden === true) {
+      pageHidden = true;
+    }
+
     if (frame && frame.skipped) {
       skippedFrameCount += 1;
     } else {
@@ -82,6 +87,7 @@ export function buildResultSummary(result) {
     warningCount,
     resultSizeBytes: byteLength,
     resultSizeLabel: formatBytes(byteLength),
+    pageHidden,
   };
 }
 

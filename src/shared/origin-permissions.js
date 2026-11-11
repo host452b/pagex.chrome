@@ -21,3 +21,17 @@ export function buildOriginPermissionPattern(tabUrl) {
 
   return `${parsedUrl.origin}/*`;
 }
+
+export function collectOriginPatterns(urls) {
+  const patterns = new Set();
+
+  for (const url of urls || []) {
+    const pattern = buildOriginPermissionPattern(url);
+
+    if (pattern) {
+      patterns.add(pattern);
+    }
+  }
+
+  return Array.from(patterns);
+}

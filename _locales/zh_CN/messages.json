@@ -1,0 +1,454 @@
+{
+  "extDescription": {
+    "message": "把一个或多个标签页提取为 AI 友好的 JSON，支持整页截图与 Cookie 导出，数据全部留在本机。"
+  },
+  "tagline": {
+    "message": "网页转 AI 友好 JSON，全程离线"
+  },
+  "settingsLabel": {
+    "message": "设置"
+  },
+  "statusReady": {
+    "message": "就绪"
+  },
+  "statusPermission": {
+    "message": "等待授权"
+  },
+  "statusRunning": {
+    "message": "提取中 $P1$/$P2$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "statusDone": {
+    "message": "已完成"
+  },
+  "statusPartial": {
+    "message": "部分完成"
+  },
+  "statusFailed": {
+    "message": "需要处理"
+  },
+  "statusStopped": {
+    "message": "已停止"
+  },
+  "guideTitle": {
+    "message": "快速上手"
+  },
+  "guideStep1Title": {
+    "message": "勾选页面"
+  },
+  "guideStep1Body": {
+    "message": "已自动勾选当前标签页，多勾几个即可批量提取。"
+  },
+  "guideStep2Title": {
+    "message": "点击提取"
+  },
+  "guideStep2Body": {
+    "message": "首次访问某个网站时 Chrome 会请求授权，Pagex 只读取你勾选的页面。"
+  },
+  "guideStep3Title": {
+    "message": "拿到文件"
+  },
+  "guideStep3Body": {
+    "message": "单页保存为 JSON，多页打包成一个 ZIP，数据不会离开本机。"
+  },
+  "guideDismiss": {
+    "message": "知道了"
+  },
+  "settingsTitle": {
+    "message": "设置"
+  },
+  "settingAutoDownload": {
+    "message": "提取完成后自动下载"
+  },
+  "settingAutoDownloadHint": {
+    "message": "popup 打开期间，提取完成后立即保存文件。"
+  },
+  "settingAllSites": {
+    "message": "允许读取所有网站"
+  },
+  "settingAllSitesHint": {
+    "message": "不再逐个网站弹出授权，随时可关闭，恢复逐站询问。"
+  },
+  "settingAllSitesDenied": {
+    "message": "Chrome 未授予读取所有网站的权限。"
+  },
+  "settingShowGuide": {
+    "message": "重新查看快速上手"
+  },
+  "pickerTitle": {
+    "message": "要提取的页面"
+  },
+  "selectionCount": {
+    "message": "已选 $P1$/$P2$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "selectAll": {
+    "message": "全选"
+  },
+  "selectNone": {
+    "message": "清空"
+  },
+  "noTabs": {
+    "message": "当前窗口没有标签页。"
+  },
+  "tabCurrent": {
+    "message": "当前标签页"
+  },
+  "tabDownload": {
+    "message": "下载 $P1$ 的 JSON",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "untitledTab": {
+    "message": "无标题标签页"
+  },
+  "hintBackgroundTabs": {
+    "message": "后台标签页会原地读取，不会切换过去，滚动加载的内容可能不完整。"
+  },
+  "hintMaxTabs": {
+    "message": "每批最多 $P1$ 个页面。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "chipQueued": {
+    "message": "排队中"
+  },
+  "chipPreparing": {
+    "message": "检查中"
+  },
+  "chipInjecting": {
+    "message": "连接中"
+  },
+  "chipCollecting": {
+    "message": "读取中"
+  },
+  "chipFinalizing": {
+    "message": "整理中"
+  },
+  "chipDone": {
+    "message": "完成"
+  },
+  "chipError": {
+    "message": "失败"
+  },
+  "chipCancelled": {
+    "message": "已停止"
+  },
+  "chipUnsupported": {
+    "message": "不可读取"
+  },
+  "metaBackground": {
+    "message": "后台读取"
+  },
+  "errNoUrl": {
+    "message": "该标签页尚未加载完成，请稍后再试。"
+  },
+  "errBrowserPage": {
+    "message": "chrome:// 等浏览器内部页面无法读取，请打开普通网页。"
+  },
+  "errExtensionPage": {
+    "message": "扩展页面无法读取。"
+  },
+  "errWebStore": {
+    "message": "Chrome 不允许扩展读取应用商店页面。"
+  },
+  "errFileAccess": {
+    "message": "读取本地文件需要在 Pagex 扩展详情中开启「允许访问文件网址」。"
+  },
+  "errUnsupportedScheme": {
+    "message": "这类页面无法读取。"
+  },
+  "errPermission": {
+    "message": "Pagex 未获得该网站的读取权限，请再次点击提取并选择「允许」。"
+  },
+  "errTabClosed": {
+    "message": "标签页已关闭。"
+  },
+  "errNavigated": {
+    "message": "读取过程中页面发生了跳转，请等页面稳定后重试。"
+  },
+  "errErrorPage": {
+    "message": "该页面加载失败，请刷新后重试。"
+  },
+  "errTimeout": {
+    "message": "页面响应超时，请刷新后重试。"
+  },
+  "errMainFrame": {
+    "message": "无法读取页面内容。"
+  },
+  "errStorageFull": {
+    "message": "本批数据过多，请先下载已完成的页面，再提取剩余页面。"
+  },
+  "errTooLarge": {
+    "message": "该页面产生的数据超出 Pagex 可保存的上限，请减少页面内嵌的 frame 后重试。"
+  },
+  "errInterrupted": {
+    "message": "提取被中断，请重新点击提取。"
+  },
+  "errBusy": {
+    "message": "另一项提取仍在进行中。"
+  },
+  "errUnknown": {
+    "message": "读取该页面时出错。"
+  },
+  "errPermissionDeniedAll": {
+    "message": "Chrome 未授予这些网站的访问权限，未提取任何内容。"
+  },
+  "errConnect": {
+    "message": "无法连接 Pagex 后台，请关闭并重新打开 popup。"
+  },
+  "extractOne": {
+    "message": "提取页面"
+  },
+  "extractMany": {
+    "message": "提取 $P1$ 个页面",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "extractNone": {
+    "message": "请先勾选页面"
+  },
+  "extractAgain": {
+    "message": "重新提取"
+  },
+  "stop": {
+    "message": "停止"
+  },
+  "downloadJson": {
+    "message": "下载 JSON"
+  },
+  "downloadZip": {
+    "message": "下载 ZIP（$P1$）",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "downloadSaved": {
+    "message": "已保存"
+  },
+  "downloadFailed": {
+    "message": "生成下载文件失败，请重试。"
+  },
+  "runIdle": {
+    "message": "勾选需要的页面，然后点击提取。"
+  },
+  "runIdleAuto": {
+    "message": "勾选需要的页面后点击提取，完成后自动保存文件。"
+  },
+  "runNoSelection": {
+    "message": "请在上方至少勾选一个页面。"
+  },
+  "runOnlyUnsupported": {
+    "message": "勾选的页面都无法读取，原因见各页面下方。"
+  },
+  "runPermission": {
+    "message": "Chrome 正在请求访问 $P1$ 个网站，选择「允许」即可继续。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runRunning": {
+    "message": "已完成 $P1$/$P2$ · $P3$ 秒。可以关闭 popup，提取会在后台继续。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      },
+      "p3": {
+        "content": "$3"
+      }
+    }
+  },
+  "runDone": {
+    "message": "$P1$ 个页面已全部提取。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runDoneSaved": {
+    "message": "已保存 $P1$。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runPartial": {
+    "message": "成功提取 $P1$/$P2$ 个页面，失败原因见列表。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "runAllFailed": {
+    "message": "没有页面提取成功，原因见各页面下方。"
+  },
+  "runStopped": {
+    "message": "已停止，已完成的 $P1$ 个页面仍可下载。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runStoppedNone": {
+    "message": "已停止，尚无完成的页面。"
+  },
+  "runFinishedAway": {
+    "message": "popup 关闭期间已完成，可在下方下载结果。"
+  },
+  "runSelectionChanged": {
+    "message": "结果来自上一次提取，点击提取以处理新勾选的页面。"
+  },
+  "resultsTitle": {
+    "message": "结果"
+  },
+  "metricPages": {
+    "message": "页面"
+  },
+  "metricElements": {
+    "message": "元素"
+  },
+  "metricClicks": {
+    "message": "展开"
+  },
+  "metricClicksHint": {
+    "message": "Pagex 读取前自动展开的折叠区块数"
+  },
+  "metricSize": {
+    "message": "大小"
+  },
+  "summaryNote": {
+    "message": "$P1$ 个 frame · 跳过 $P2$ 个 · $P3$ 条警告",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      },
+      "p3": {
+        "content": "$3"
+      }
+    }
+  },
+  "summaryEmpty": {
+    "message": "提取完成后在此显示结果。"
+  },
+  "toolsTitle": {
+    "message": "页面工具"
+  },
+  "screenshot": {
+    "message": "整页截图"
+  },
+  "cookies": {
+    "message": "导出 cookies.txt"
+  },
+  "toolsHintOne": {
+    "message": "作用于已勾选的页面：$P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "toolsHintMany": {
+    "message": "截图和导出 cookies 一次只处理一个页面，请只勾选一个。"
+  },
+  "toolsHintNone": {
+    "message": "勾选一个页面即可使用这些工具。"
+  },
+  "toolsHintRunning": {
+    "message": "提取完成后可用。"
+  },
+  "shotPreparing": {
+    "message": "准备中…"
+  },
+  "shotCapturing": {
+    "message": "截取中 $P1$/$P2$…",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "shotSaving": {
+    "message": "保存中…"
+  },
+  "shotSaved": {
+    "message": "截图已保存。"
+  },
+  "shotSavedTruncated": {
+    "message": "截图已保存。页面过长，单张图片只包含顶部部分。"
+  },
+  "shotTooLarge": {
+    "message": "页面过大，无法生成单张图片。"
+  },
+  "shotFailed": {
+    "message": "截图失败，请刷新页面后重试。"
+  },
+  "shotPermission": {
+    "message": "需要授权才能截取此页面。"
+  },
+  "cookiesExporting": {
+    "message": "导出中…"
+  },
+  "cookiesDone": {
+    "message": "已导出 $P1$ 个 cookie 和 $P2$ 条存储项。请妥善保管：该文件可直接登录你的账号。",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "cookiesFailed": {
+    "message": "导出 cookies 失败，请检查网站授权后重试。"
+  },
+  "cookiesPermission": {
+    "message": "需要授权才能读取该网站的 cookies。"
+  },
+  "footerPrivacy": {
+    "message": "所有数据仅保存在本机，不会上传。"
+  }
+}

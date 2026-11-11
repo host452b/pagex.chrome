@@ -1,0 +1,454 @@
+{
+  "extDescription": {
+    "message": "Turn one or many tabs into AI-ready JSON, take full-page screenshots, and export cookies, all on your device."
+  },
+  "tagline": {
+    "message": "Web pages to AI-ready JSON, offline"
+  },
+  "settingsLabel": {
+    "message": "Settings"
+  },
+  "statusReady": {
+    "message": "Ready"
+  },
+  "statusPermission": {
+    "message": "Waiting for access"
+  },
+  "statusRunning": {
+    "message": "Extracting $P1$/$P2$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "statusDone": {
+    "message": "Done"
+  },
+  "statusPartial": {
+    "message": "Done with issues"
+  },
+  "statusFailed": {
+    "message": "Needs attention"
+  },
+  "statusStopped": {
+    "message": "Stopped"
+  },
+  "guideTitle": {
+    "message": "Quick start"
+  },
+  "guideStep1Title": {
+    "message": "Tick the pages"
+  },
+  "guideStep1Body": {
+    "message": "The current tab is ticked for you. Tick more to extract several at once."
+  },
+  "guideStep2Title": {
+    "message": "Press Extract"
+  },
+  "guideStep2Body": {
+    "message": "The first time on a site, Chrome asks for access. Pagex only reads the pages you tick."
+  },
+  "guideStep3Title": {
+    "message": "Get your files"
+  },
+  "guideStep3Body": {
+    "message": "One page saves a JSON file; several pages save one ZIP. Nothing leaves your device."
+  },
+  "guideDismiss": {
+    "message": "Got it"
+  },
+  "settingsTitle": {
+    "message": "Settings"
+  },
+  "settingAutoDownload": {
+    "message": "Download automatically when done"
+  },
+  "settingAutoDownloadHint": {
+    "message": "Saves files as soon as they are ready while this popup is open."
+  },
+  "settingAllSites": {
+    "message": "Allow reading all sites"
+  },
+  "settingAllSitesHint": {
+    "message": "Skips the per-site prompt. Turn it off anytime to go back to asking."
+  },
+  "settingAllSitesDenied": {
+    "message": "Chrome did not grant access to all sites."
+  },
+  "settingShowGuide": {
+    "message": "Show quick start again"
+  },
+  "pickerTitle": {
+    "message": "Pages to extract"
+  },
+  "selectionCount": {
+    "message": "$P1$ of $P2$ selected",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "selectAll": {
+    "message": "Select all"
+  },
+  "selectNone": {
+    "message": "Clear"
+  },
+  "noTabs": {
+    "message": "No tabs in this window."
+  },
+  "tabCurrent": {
+    "message": "Current tab"
+  },
+  "tabDownload": {
+    "message": "Download JSON for $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "untitledTab": {
+    "message": "Untitled tab"
+  },
+  "hintBackgroundTabs": {
+    "message": "Background tabs are read where they are, without switching to them. Content that loads on scroll may be incomplete."
+  },
+  "hintMaxTabs": {
+    "message": "Up to $P1$ pages per batch.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "chipQueued": {
+    "message": "Waiting"
+  },
+  "chipPreparing": {
+    "message": "Checking"
+  },
+  "chipInjecting": {
+    "message": "Opening"
+  },
+  "chipCollecting": {
+    "message": "Reading"
+  },
+  "chipFinalizing": {
+    "message": "Packing"
+  },
+  "chipDone": {
+    "message": "Done"
+  },
+  "chipError": {
+    "message": "Failed"
+  },
+  "chipCancelled": {
+    "message": "Stopped"
+  },
+  "chipUnsupported": {
+    "message": "Can't read"
+  },
+  "metaBackground": {
+    "message": "read in background"
+  },
+  "errNoUrl": {
+    "message": "This tab hasn't finished loading. Wait a moment and try again."
+  },
+  "errBrowserPage": {
+    "message": "Browser pages such as chrome:// can't be read. Open a regular website."
+  },
+  "errExtensionPage": {
+    "message": "Extension pages can't be read."
+  },
+  "errWebStore": {
+    "message": "Chrome doesn't let extensions read the Web Store."
+  },
+  "errFileAccess": {
+    "message": "Local files need \"Allow access to file URLs\" turned on in Pagex's extension details."
+  },
+  "errUnsupportedScheme": {
+    "message": "This kind of page can't be read."
+  },
+  "errPermission": {
+    "message": "Pagex wasn't allowed to read this site. Press Extract again and choose Allow."
+  },
+  "errTabClosed": {
+    "message": "The tab was closed."
+  },
+  "errNavigated": {
+    "message": "The page changed while it was being read. Try again once it settles."
+  },
+  "errErrorPage": {
+    "message": "The page failed to load. Reload it, then try again."
+  },
+  "errTimeout": {
+    "message": "The page took too long to respond. Reload it and try again."
+  },
+  "errMainFrame": {
+    "message": "The page content couldn't be read."
+  },
+  "errStorageFull": {
+    "message": "Too much data for one batch. Download the finished pages, then extract the rest."
+  },
+  "errTooLarge": {
+    "message": "This page produced more data than Pagex can hold. Try it with fewer embedded frames open, or split the page."
+  },
+  "errInterrupted": {
+    "message": "Extraction was interrupted. Press Extract to run it again."
+  },
+  "errBusy": {
+    "message": "Another extraction is still running."
+  },
+  "errUnknown": {
+    "message": "Something went wrong while reading this page."
+  },
+  "errPermissionDeniedAll": {
+    "message": "Chrome didn't grant access to these sites, so nothing was extracted."
+  },
+  "errConnect": {
+    "message": "Couldn't reach Pagex in the background. Close and reopen this popup."
+  },
+  "extractOne": {
+    "message": "Extract page"
+  },
+  "extractMany": {
+    "message": "Extract $P1$ pages",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "extractNone": {
+    "message": "Tick a page first"
+  },
+  "extractAgain": {
+    "message": "Extract again"
+  },
+  "stop": {
+    "message": "Stop"
+  },
+  "downloadJson": {
+    "message": "Download JSON"
+  },
+  "downloadZip": {
+    "message": "Download ZIP ($P1$)",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "downloadSaved": {
+    "message": "Saved"
+  },
+  "downloadFailed": {
+    "message": "Couldn't build the download. Try again."
+  },
+  "runIdle": {
+    "message": "Tick the pages you want, then press Extract."
+  },
+  "runIdleAuto": {
+    "message": "Tick the pages you want, then press Extract. Files save automatically."
+  },
+  "runNoSelection": {
+    "message": "Tick at least one page above."
+  },
+  "runOnlyUnsupported": {
+    "message": "None of the ticked pages can be read. See the reason under each one."
+  },
+  "runPermission": {
+    "message": "Chrome is asking for access to $P1$ site(s). Choose Allow to continue.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runRunning": {
+    "message": "$P1$ of $P2$ finished · $P3$s. You can close this popup; work continues in the background.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      },
+      "p3": {
+        "content": "$3"
+      }
+    }
+  },
+  "runDone": {
+    "message": "All $P1$ page(s) extracted.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runDoneSaved": {
+    "message": "Saved $P1$.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runPartial": {
+    "message": "$P1$ of $P2$ page(s) extracted. Failed pages show the reason in the list.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "runAllFailed": {
+    "message": "No page could be extracted. See the reason under each page."
+  },
+  "runStopped": {
+    "message": "Stopped. $P1$ finished page(s) can still be downloaded.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "runStoppedNone": {
+    "message": "Stopped before any page finished."
+  },
+  "runFinishedAway": {
+    "message": "Finished while the popup was closed. Download the results below."
+  },
+  "runSelectionChanged": {
+    "message": "Results are from the last run. Press Extract to run the new selection."
+  },
+  "resultsTitle": {
+    "message": "Results"
+  },
+  "metricPages": {
+    "message": "Pages"
+  },
+  "metricElements": {
+    "message": "Elements"
+  },
+  "metricClicks": {
+    "message": "Expanded"
+  },
+  "metricClicksHint": {
+    "message": "Collapsed sections Pagex opened before reading"
+  },
+  "metricSize": {
+    "message": "Size"
+  },
+  "summaryNote": {
+    "message": "$P1$ frame(s) · $P2$ skipped · $P3$ warning(s)",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      },
+      "p3": {
+        "content": "$3"
+      }
+    }
+  },
+  "summaryEmpty": {
+    "message": "Results appear here after extraction."
+  },
+  "toolsTitle": {
+    "message": "Page tools"
+  },
+  "screenshot": {
+    "message": "Full-page screenshot"
+  },
+  "cookies": {
+    "message": "Export cookies.txt"
+  },
+  "toolsHintOne": {
+    "message": "Works on the ticked page: $P1$",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      }
+    }
+  },
+  "toolsHintMany": {
+    "message": "Tick just one page to take a screenshot or export cookies."
+  },
+  "toolsHintNone": {
+    "message": "Tick one page to use these tools."
+  },
+  "toolsHintRunning": {
+    "message": "Available when the extraction finishes."
+  },
+  "shotPreparing": {
+    "message": "Preparing…"
+  },
+  "shotCapturing": {
+    "message": "Capturing $P1$/$P2$…",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "shotSaving": {
+    "message": "Saving…"
+  },
+  "shotSaved": {
+    "message": "Screenshot saved."
+  },
+  "shotSavedTruncated": {
+    "message": "Screenshot saved. The page is very long, so only the top part fits in one image."
+  },
+  "shotTooLarge": {
+    "message": "The page is too large to render as one image."
+  },
+  "shotFailed": {
+    "message": "Screenshot failed. Reload the page and try again."
+  },
+  "shotPermission": {
+    "message": "Permission is needed to capture this page."
+  },
+  "cookiesExporting": {
+    "message": "Exporting…"
+  },
+  "cookiesDone": {
+    "message": "Exported $P1$ cookie(s) and $P2$ storage item(s). Keep this file private: it can sign in as you.",
+    "placeholders": {
+      "p1": {
+        "content": "$1"
+      },
+      "p2": {
+        "content": "$2"
+      }
+    }
+  },
+  "cookiesFailed": {
+    "message": "Couldn't export cookies. Check site access and try again."
+  },
+  "cookiesPermission": {
+    "message": "Permission is needed to read cookies for this site."
+  },
+  "footerPrivacy": {
+    "message": "Everything stays on this device. Nothing is uploaded."
+  }
+}

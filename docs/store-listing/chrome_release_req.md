@@ -1,6 +1,6 @@
-# Chrome Web Store 发布资料 — Pagex v0.3.0
+# Chrome Web Store 发布资料 — Pagex v0.4.0
 
-> 生成日期：2026-04-16
+> 生成日期：2026-11-11
 > 此文件包含 Dashboard 所有需要填写的字段，发布时逐项复制粘贴。
 
 ---
@@ -23,15 +23,17 @@ It helps you collect visible content, hidden content, expandable sections, frame
 What Pagex does:
 
 Page extraction
-- Parse the selected tab directly from the popup
+- Tick one or many tabs in the popup and extract them in one batch
 - Expand common disclosure patterns such as details, aria-expanded="false", and fragment-based collapse controls
 - Trigger lazy-loaded content by scrolling before extraction
 - Collect DOM and shadow DOM nodes into structured JSON
 - Merge accessible frame results and label skipped or failed frames clearly
 - Filter sensitive attributes and remove query strings and hashes from exported values
-- Download the final payload as a JSON file
+- Download one page as a JSON file, or a whole batch as a single ZIP (one JSON per page)
+- Optional auto-download as soon as extraction finishes
 - Stop a running extraction and retry at any time
-- Live countdown showing estimated time remaining per stage
+- Live per-page progress, plain-language reasons for pages that can't be read, and a first-run quick start
+- English and Simplified Chinese interface, light and dark themes
 
 Full-page screenshot
 - Capture the entire scrollable page as a stitched PNG
@@ -122,7 +124,7 @@ Injects a content script into the selected tab to collect page structure, scroll
 
 
 **需请求 storage 的理由：**
-Stores extension session state (parse status, extraction result summaries, and the last generated payload) locally on the device using chrome.storage.session. This data persists only during the browser session for popup state restoration. No data is synced to external servers.
+Stores extension session state (batch status, result summaries, and the compressed results of the latest batch) locally on the device using chrome.storage.session, which is cleared when the browser closes. Stores two user settings (auto-download, quick-start dismissed) in chrome.storage.local. No data is synced to external servers.
 
 
 **需请求 tabs 的理由：**

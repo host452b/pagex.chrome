@@ -474,3 +474,116 @@ test('collectPage strips query strings and hashes from exported urls', async () 
   assert.equal(linkEntry.attributes.href, 'https://example.com/download');
   assert.equal(imageEntry.attributes.src, 'https://cdn.example.com/image.png');
 });
+
+function buildExpanderPage(count) {
+  const buttons = Array.from(
+    { length: count },
+    (_, index) =>
+      `<button id="b${index}" aria-expanded="false" aria-controls="p${index}">Show more ${index}</button>` +
+      `<section id="p${index}" hidden>Panel ${index}</section>`,
+  ).join('');
+
+  return `<!doctype html><html><body>${buttons}</body></html>`;
+}
+
+function wireExpanders(window, count) {
+  for (let index = 0; index < count; index += 1) {
+    const button = window.document.getElementById(`b${index}`);
+    button.addEventListener('click', () => {
+      button.setAttribute('aria-expanded', 'true');
+      window.document.getElementById(`p${index}`).hidden = false;
+    });
+  }
+}
+
+test('collectPage stops expanding when the time budget runs out but still returns content', async () => {
+  const dom = createDom(buildExpanderPage(10));
+  wireExpanders(dom.window, 10);
+
+  const collector = await loadCollector(dom);
+  const result = await collector.collectPage({
+    clickDelayMs: 40,
+    settleDelayMs: 0,
+    enableAutoScroll: false,
+    expandBudgetMs: 60,
+  });
+
+  assert.ok(result.stats.clickedExpanders >= 1);
+  assert.ok(result.stats.clickedExpanders < 10, 'expected the budget to cut the expand loop short');
+  assert.ok(result.warnings.some((warning) => warning.includes('expand time budget')));
+  assert.ok(result.elements.length > 0);
+});
+
+test('collectPage can be aborted mid-run', async () => {
+  const dom = createDom(buildExpanderPage(5));
+  wireExpanders(dom.window, 5);
+
+  const collector = await loadCollector(dom);
+  const pending = collector.collectPage({
+    clickDelayMs: 200,
+    settleDelayMs: 0,
+    enableAutoScroll: false,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  collector.abort();
+
+  await assert.rejects(pending, /collection cancelled/);
+});
+
+test('collectPage in a hidden tab avoids timer delays and flags the result', async () => {
+  const dom = createDom(buildExpanderPage(5));
+  wireExpanders(dom.window, 5);
+  Object.defineProperty(dom.window.document, 'visibilityState', {
+    configurable: true,
+    get: () => 'hidden',
+  });
+
+  const collector = await loadCollector(dom);
+  const started = Date.now();
+  const result = await collector.collectPage({
+    clickDelayMs: 2000,
+    settleDelayMs: 2000,
+    scrollDelayMs: 2000,
+    autoScrollPasses: 2,
+  });
+
+  assert.ok(Date.now() - started < 1500, 'hidden tabs should not wait on throttled timers');
+  assert.equal(result.pageHidden, true);
+  assert.equal(result.stats.clickedExpanders, 5);
+  assert.ok(result.warnings.some((warning) => warning.includes('background tab')));
+});
+
+test('content.js default options stay in sync with PAGEX_PARSE_OPTIONS', async () => {
+  const { PAGEX_PARSE_OPTIONS } = await import('../src/shared/constants.js');
+  const source = await readFile(contentScriptPath, 'utf8');
+  const block = source.slice(
+    source.indexOf('const defaultOptions = {'),
+    source.indexOf('};', source.indexOf('const defaultOptions = {')),
+  );
+  const parsed = {};
+
+  for (const match of block.matchAll(/^\s+(\w+):\s*([\w.]+),$/gm)) {
+    parsed[match[1]] = match[2] === 'true' ? true : match[2] === 'false' ? false : Number(match[2]);
+  }
+
+  assert.deepEqual(parsed, { ...PAGEX_PARSE_OPTIONS });
+});
+
+test('abort is scoped to a job token and sticky for runs that have not started', async () => {
+  const dom = createDom(buildExpanderPage(3));
+  wireExpanders(dom.window, 3);
+
+  const collector = await loadCollector(dom);
+  const options = { clickDelayMs: 0, settleDelayMs: 0, enableAutoScroll: false };
+
+  collector.abort('job-old');
+  const result = await collector.collectPage({ ...options, runToken: 'job-new' });
+  assert.equal(result.stats.clickedExpanders, 3, 'an older job abort must not cancel a new job');
+
+  collector.abort('job-late');
+  await assert.rejects(
+    collector.collectPage({ ...options, runToken: 'job-late' }),
+    /collection cancelled/,
+  );
+});

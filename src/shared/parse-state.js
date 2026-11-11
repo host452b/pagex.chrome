@@ -1,30 +1,3 @@
-import { buildResultSummary } from './result-utils.js';
-
-function createBaseState({
-  requestId,
-  selectedTabId,
-  status,
-  stageKey,
-  stageLabel,
-  canCopy,
-  result,
-  summary,
-  errorMessage,
-}) {
-  return {
-    requestId,
-    selectedTabId,
-    status,
-    stageKey,
-    stageLabel,
-    canCopy,
-    result,
-    summary,
-    errorMessage,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 function normalizeStats(stats) {
   const safeStats = {
     elementCount: 0,
@@ -78,6 +51,7 @@ function buildAccessibleFrame(entry) {
     stats: normalizeStats(result.stats),
     elements,
     collectedAt: result.collectedAt || '',
+    pageHidden: result.pageHidden === true,
     resultSizeBytes: getSafeResultSize(result.resultSizeBytes),
   };
 }
@@ -204,59 +178,4 @@ export function buildParseResult({
     resultSizeBytes,
     frames: mergedFrames,
   };
-}
-
-export function createRunningState({
-  requestId,
-  selectedTabId,
-  stageKey,
-  stageLabel,
-}) {
-  return createBaseState({
-    requestId,
-    selectedTabId,
-    status: 'running',
-    stageKey,
-    stageLabel,
-    canCopy: false,
-    result: null,
-    summary: null,
-    errorMessage: '',
-  });
-}
-
-export function createCompletedState({
-  requestId,
-  selectedTabId,
-  result,
-}) {
-  return createBaseState({
-    requestId,
-    selectedTabId,
-    status: 'completed',
-    stageKey: 'completed',
-    stageLabel: 'Parse complete',
-    canCopy: true,
-    result,
-    summary: buildResultSummary(result),
-    errorMessage: '',
-  });
-}
-
-export function createErrorState({
-  requestId,
-  selectedTabId,
-  errorMessage,
-}) {
-  return createBaseState({
-    requestId,
-    selectedTabId,
-    status: 'error',
-    stageKey: 'error',
-    stageLabel: 'Parse failed',
-    canCopy: false,
-    result: null,
-    summary: null,
-    errorMessage,
-  });
 }

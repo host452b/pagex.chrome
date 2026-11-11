@@ -19,15 +19,17 @@ It helps you collect visible content, hidden content, expandable sections, frame
 ### What Pagex does
 
 **Page extraction**
-- Parse the selected tab directly from the popup
+- Tick one or many tabs in the popup and extract them in one batch
 - Expand common disclosure patterns such as `details`, `aria-expanded="false"`, and fragment-based collapse controls
 - Trigger lazy-loaded content by scrolling before extraction
 - Collect DOM and shadow DOM nodes into structured JSON
 - Merge accessible frame results and label skipped or failed frames clearly
 - Filter sensitive attributes and remove query strings and hashes from exported values
-- Download the final payload as a JSON file
+- Download one page as a JSON file, or a whole batch as a single ZIP (one JSON per page)
+- Optional auto-download as soon as extraction finishes
 - Stop a running extraction and retry at any time
-- Live countdown showing estimated time remaining per stage
+- Live per-page progress, plain-language reasons for pages that can't be read, and a first-run quick start
+- English and Simplified Chinese interface, light and dark themes
 
 **Full-page screenshot**
 - Capture the entire scrollable page as a stitched PNG
@@ -67,7 +69,7 @@ The exported JSON payload can include:
 - `activeTab`: lets Pagex work with the selected page
 - `scripting`: injects the collector into the selected tab
 - `cookies`: reads cookies for the selected tab when you click "Get cookies.txt"
-- `storage`: stores parse status and result metadata in the extension session
+- `storage`: keeps batch status and compressed results in session storage (cleared when the browser closes) and saves your settings
 - `tabs`: reads the selected tab information in the popup
 - `webNavigation`: checks frame coverage for the current tab
 - optional host access: requested only when you interact with a selected site origin

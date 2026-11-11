@@ -1,61 +1,71 @@
 import {
+  PAGEX_BATCH_LIMITS,
+  PAGEX_JOB_KEY,
   PAGEX_MESSAGE_TYPES,
   PAGEX_PARSE_OPTIONS,
-  PAGEX_STAGE_LABELS,
-  PAGEX_STATE_KEY,
+  PAGEX_SUBFRAME_OPTION_OVERRIDES,
 } from './src/shared/constants.js';
 import {
-  buildParseResult,
-  createCompletedState,
-  createErrorState,
-  createRunningState,
-} from './src/shared/parse-state.js';
+  PAGEX_ERROR_CODES,
+  PagexError,
+  classifyRuntimeError,
+  getErrorText,
+} from './src/shared/error-codes.js';
+import {
+  cancelJob,
+  createJob,
+  failTab,
+  finalizeJob,
+  interruptJob,
+  updateTab,
+} from './src/shared/job-state.js';
+import { buildParseResult } from './src/shared/parse-state.js';
 import { createParseSingleFlight } from './src/shared/parse-single-flight.js';
+import { buildResultSummary } from './src/shared/result-utils.js';
+import {
+  buildResultKey,
+  removeResults,
+  saveResult,
+} from './src/shared/result-store.js';
+import { classifyTabUrl } from './src/shared/tab-eligibility.js';
 
-const parseSingleFlight = createParseSingleFlight();
+const jobGate = createParseSingleFlight();
+
+// In-memory copy of the running job. Every change goes through `mutateJob`
+// and is persisted to chrome.storage.session for the popup to render.
+let currentJob = null;
+let persistChain = Promise.resolve();
+const cancelledJobIds = new Set();
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== 'object') {
     return false;
   }
 
-  if (message.type === PAGEX_MESSAGE_TYPES.START_PARSE) {
-    void handleStartParse(message.tabId)
-      .then((response) => {
-        sendResponse(response);
-      })
-      .catch(async (error) => {
-        const requestId = crypto.randomUUID();
-        const errorMessage = getErrorMessage(error);
-
-        await writeState(
-          createErrorState({
-            requestId,
-            selectedTabId: message.tabId,
-            errorMessage,
-          }),
-        );
-
+  if (message.type === PAGEX_MESSAGE_TYPES.START_BATCH) {
+    void handleStartBatch(message.tabIds)
+      .then(sendResponse)
+      .catch((error) => {
         sendResponse({
           ok: false,
-          requestId,
-          errorMessage,
+          errorCode: classifyRuntimeError(error),
+          errorDetail: getErrorText(error),
         });
       });
 
     return true;
   }
 
-  if (message.type === PAGEX_MESSAGE_TYPES.STOP_PARSE) {
-    const active = parseSingleFlight.getActive();
+  if (message.type === PAGEX_MESSAGE_TYPES.PING) {
+    // Waking the worker is the point: a fresh worker runs
+    // recoverInterruptedJob() at startup.
+    sendResponse({ ok: true });
+    return false;
+  }
 
-    if (active) {
-      parseSingleFlight.finish(active.requestId);
-    }
-
-    void chrome.storage.session
-      .remove(PAGEX_STATE_KEY)
-      .then(() => sendResponse({ ok: true }))
+  if (message.type === PAGEX_MESSAGE_TYPES.STOP_BATCH) {
+    void handleStopBatch()
+      .then(sendResponse)
       .catch(() => sendResponse({ ok: false }));
 
     return true;
@@ -64,307 +74,399 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-async function handleStartParse(tabId) {
-  if (!Number.isInteger(tabId)) {
-    return {
-      ok: false,
-      requestId: '',
-      errorMessage: 'Please choose a valid tab before parsing.',
-    };
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (!currentJob || currentJob.status !== 'running') {
+    return;
   }
 
-  const requestId = crypto.randomUUID();
-  const startAttempt = parseSingleFlight.start({
-    requestId,
-    tabId,
-  });
+  const entry = currentJob.tabs.find((tab) => tab.tabId === tabId);
 
-  if (!startAttempt.ok) {
-    return {
-      ok: false,
-      requestId,
-      errorMessage:
-        'Another parse is already running. Wait for it to finish before starting a new one.',
-    };
+  if (entry && entry.status === 'queued') {
+    void mutateJob(currentJob.jobId, (job) =>
+      failTab(job, tabId, PAGEX_ERROR_CODES.TAB_CLOSED),
+    );
   }
+});
+
+// If the service worker was stopped mid-job, the stored job still says
+// "running" but nothing is driving it. Mark it as interrupted.
+void recoverInterruptedJob();
+
+async function recoverInterruptedJob() {
+  try {
+    const stored = await chrome.storage.session.get(PAGEX_JOB_KEY);
+    const job = stored[PAGEX_JOB_KEY];
+
+    if (!job || job.status !== 'running' || currentJob) {
+      return;
+    }
+
+    await chrome.storage.session.set({ [PAGEX_JOB_KEY]: interruptJob(job) });
+  } catch {
+    // Nothing to recover.
+  }
+}
+
+async function handleStartBatch(rawTabIds) {
+  const tabIds = Array.from(
+    new Set((Array.isArray(rawTabIds) ? rawTabIds : []).filter(Number.isInteger)),
+  ).slice(0, PAGEX_BATCH_LIMITS.maxTabs);
+
+  if (tabIds.length === 0) {
+    return { ok: false, errorCode: PAGEX_ERROR_CODES.NO_URL };
+  }
+
+  const jobId = crypto.randomUUID();
+
+  if (!jobGate.start({ requestId: jobId, tabId: tabIds[0] }).ok) {
+    return { ok: false, errorCode: PAGEX_ERROR_CODES.BUSY };
+  }
+
+  const previousInMemory = currentJob;
 
   try {
-    await ensureTabCanBeParsed(tabId);
-    await writeStageState({
-      requestId,
-      selectedTabId: tabId,
-      stageKey: 'preparing',
-      stageLabel: PAGEX_STAGE_LABELS.PREPARING,
+    const tabs = await Promise.all(
+      tabIds.map((tabId) => chrome.tabs.get(tabId).catch(() => null)),
+    );
+    const previous = await readStoredJob();
+
+    let job = createJob({
+      jobId,
+      tabs: tabIds.map((tabId, index) => ({
+        tabId,
+        title: tabs[index]?.title || '',
+        url: tabs[index]?.url || '',
+      })),
     });
 
-    await writeStageState({
-      requestId,
-      selectedTabId: tabId,
-      stageKey: 'injecting',
-      stageLabel: PAGEX_STAGE_LABELS.INJECTING,
+    tabs.forEach((tab, index) => {
+      if (!tab) {
+        job = failTab(job, tabIds[index], PAGEX_ERROR_CODES.TAB_CLOSED);
+      }
     });
 
-    // Two-phase injection: main frame first (fast, reliable), then
-    // sub-frames as best-effort.  Ad-heavy pages like time.is have
-    // cross-origin iframes whose event loops are blocked by ad scripts.
-    // executeScript({allFrames}) hangs forever waiting for them and
-    // gives zero partial results on timeout.  By collecting the main
-    // frame separately we guarantee the primary content is captured
-    // even when iframes are stuck.
+    currentJob = job;
+    await chrome.storage.session.set({ [PAGEX_JOB_KEY]: job });
 
-    const IFRAME_TIMEOUT_MS = 8000;
+    // Only once the new job is safely stored, free the previous results.
+    if (previous) {
+      await removeResults(previous.tabs.map((tab) => tab.resultKey)).catch(() => {});
+    }
 
-    // Phase A: Inject content.js into main frame (always fast).
+    void runJob(jobId);
+
+    return { ok: true, jobId };
+  } catch (error) {
+    if (currentJob && currentJob.jobId === jobId) {
+      currentJob = previousInMemory;
+    }
+
+    jobGate.finish(jobId);
+    throw error;
+  }
+}
+
+async function handleStopBatch() {
+  if (!currentJob || currentJob.status !== 'running') {
+    return { ok: true };
+  }
+
+  const { jobId } = currentJob;
+  const runningTabIds = currentJob.tabs
+    .filter((tab) => tab.status === 'running')
+    .map((tab) => tab.tabId);
+
+  currentJob = cancelJob(currentJob);
+  cancelledJobIds.add(jobId);
+  jobGate.finish(jobId);
+  await persistJob().catch(() => {});
+
+  // Ask in-page collectors to stop clicking and scrolling. Fire and forget:
+  // a stuck frame must not block the Stop response.
+  for (const tabId of runningTabIds) {
+    chrome.scripting
+      .executeScript({
+        target: { tabId, allFrames: true },
+        func: (token) => globalThis.pagexCollector?.abort?.(token),
+        args: [jobId],
+      })
+      .catch(() => {});
+  }
+
+  return { ok: true };
+}
+
+async function runJob(jobId) {
+  const queue = currentJob.tabs
+    .filter((tab) => tab.status === 'queued')
+    .map((tab) => tab.tabId);
+  const workerCount = Math.min(PAGEX_BATCH_LIMITS.concurrency, queue.length);
+
+  const worker = async () => {
+    while (queue.length > 0 && !isCancelled(jobId)) {
+      const tabId = queue.shift();
+      const entry = currentJob?.tabs.find((tab) => tab.tabId === tabId);
+
+      if (!entry || entry.status !== 'queued') {
+        continue;
+      }
+
+      try {
+        await runTab(jobId, tabId);
+      } catch (error) {
+        await mutateJob(jobId, (job) =>
+          failTab(job, tabId, classifyRuntimeError(error), getErrorText(error)),
+        );
+      }
+    }
+  };
+
+  try {
+    await Promise.allSettled(Array.from({ length: workerCount }, worker));
+  } finally {
+    if (!isCancelled(jobId)) {
+      // Anything still unfinished at this point can never finish.
+      await mutateJob(jobId, (job) => {
+        const finished = finalizeJob(job);
+        return finished.status === 'running' ? interruptJob(job) : finished;
+      });
+    }
+
+    jobGate.finish(jobId);
+  }
+}
+
+async function runTab(jobId, tabId) {
+  const setStage = (stageKey) =>
+    mutateJob(jobId, (job) => updateTab(job, tabId, { status: 'running', stageKey }));
+
+  try {
+    await setStage('preparing');
+
+    const tab = await chrome.tabs.get(tabId);
+    const fileAccessAllowed = await isFileAccessAllowed();
+    const eligibility = classifyTabUrl(tab.url, { fileAccessAllowed });
+
+    if (!eligibility.ok) {
+      throw new PagexError(eligibility.code);
+    }
+
+    assertActive(jobId);
+    await setStage('injecting');
     await chrome.scripting.executeScript({
       target: { tabId, frameIds: [0] },
       files: ['content.js'],
     });
 
-    // Phase B: Best-effort injection into sub-frames.
-    try {
-      await Promise.race([
-        chrome.scripting.executeScript({
-          target: { tabId, allFrames: true },
-          files: ['content.js'],
-        }),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error('sub-frame injection timed out')),
-            IFRAME_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-    } catch {
-      // Sub-frame injection timed out — main frame is already injected.
-    }
+    assertActive(jobId);
+    await setStage('collecting');
 
-    await writeStageState({
-      requestId,
-      selectedTabId: tabId,
-      stageKey: 'collecting',
-      stageLabel: PAGEX_STAGE_LABELS.COLLECTING,
-    });
+    const frameResults = await collectFrames(tabId, jobId);
 
-    // The function executed inside each frame to collect page content.
-    const collectPageInFrame = async (options) => {
-      try {
-        if (
-          !globalThis.pagexCollector ||
-          typeof globalThis.pagexCollector.collectPage !== 'function'
-        ) {
-          throw new Error('page collector is unavailable on this page');
-        }
-
-        const frameTimeoutMs = 15000;
-        const result = await Promise.race([
-          globalThis.pagexCollector.collectPage(options),
-          new Promise((_, reject) =>
-            setTimeout(
-              () =>
-                reject(new Error('frame collection timed out after 15 s')),
-              frameTimeoutMs,
-            ),
-          ),
-        ]);
-
-        return {
-          ok: true,
-          result,
-        };
-      } catch (error) {
-        let errorMessage = 'frame collection failed';
-
-        if (error instanceof Error && error.message) {
-          errorMessage = error.message;
-        }
-
-        return {
-          ok: false,
-          frameUrl: window.location.href,
-          errorMessage,
-        };
-      }
-    };
-
-    // Phase C: Collect from all frames.  If sub-frames are stuck,
-    // fall back to main-frame-only after the timeout.
-    let accessibleFrameResults;
-
-    try {
-      accessibleFrameResults = await Promise.race([
-        chrome.scripting.executeScript({
-          target: { tabId, allFrames: true },
-          func: collectPageInFrame,
-          args: [PAGEX_PARSE_OPTIONS],
-        }),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error('sub-frame collection timed out')),
-            IFRAME_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-    } catch {
-      // All-frames timed out — fall back to main frame only.
-      accessibleFrameResults = await chrome.scripting.executeScript({
-        target: { tabId, frameIds: [0] },
-        func: collectPageInFrame,
-        args: [PAGEX_PARSE_OPTIONS],
-      });
-    }
-
-    await writeStageState({
-      requestId,
-      selectedTabId: tabId,
-      stageKey: 'inspecting',
-      stageLabel: PAGEX_STAGE_LABELS.INSPECTING,
-    });
-
-    const discoveredFrames = await getDiscoveredFrames(tabId);
-
-    await writeStageState({
-      requestId,
-      selectedTabId: tabId,
-      stageKey: 'finalizing',
-      stageLabel: PAGEX_STAGE_LABELS.FINALIZING,
-    });
+    assertActive(jobId);
+    await setStage('finalizing');
 
     const result = buildParseResult({
-      requestId,
+      requestId: jobId,
       selectedTabId: tabId,
-      accessibleFrameResults,
-      discoveredFrames,
+      accessibleFrameResults: frameResults,
+      discoveredFrames: await getDiscoveredFrames(tabId),
     });
 
     if (!result.hasSuccessfulMainFrame) {
       throw new Error(result.mainFrameErrorMessage);
     }
 
-    await writeState(
-      createCompletedState({
-        requestId,
-        selectedTabId: tabId,
-        result,
+    assertActive(jobId);
+
+    const resultKey = buildResultKey(jobId, tabId);
+    await saveResult(resultKey, result);
+
+    if (isCancelled(jobId)) {
+      // Stopped while saving: nothing references this key any more.
+      await removeResults([resultKey]).catch(() => {});
+      return;
+    }
+
+    await mutateJob(jobId, (job) =>
+      updateTab(job, tabId, {
+        status: 'done',
+        stageKey: 'done',
+        title: result.title || tab.title || '',
+        url: tab.url || '',
+        summary: buildResultSummary(result),
+        resultKey,
       }),
     );
-
-    return {
-      ok: true,
-      requestId,
-    };
   } catch (error) {
-    const errorMessage = getErrorMessage(error);
+    if (isCancelled(jobId)) {
+      return;
+    }
 
-    await writeState(
-      createErrorState({
-        requestId,
-        selectedTabId: tabId,
-        errorMessage,
-      }),
+    await mutateJob(jobId, (job) =>
+      failTab(job, tabId, classifyRuntimeError(error), getErrorText(error)),
     );
-
-    return {
-      ok: false,
-      requestId,
-      errorMessage,
-    };
-  } finally {
-    parseSingleFlight.finish(requestId);
   }
 }
 
-async function ensureTabCanBeParsed(tabId) {
-  const tab = await chrome.tabs.get(tabId);
-  const url = tab.url || '';
+// Runs inside every frame. Must stay self-contained (it is serialized).
+async function collectPageInFrame(options) {
+  try {
+    if (
+      !globalThis.pagexCollector ||
+      typeof globalThis.pagexCollector.collectPage !== 'function'
+    ) {
+      throw new Error('page collector is unavailable on this page');
+    }
 
-  if (!url) {
-    throw new Error('The selected tab does not expose a scriptable URL yet.');
+    const timeoutMs = Number(options && options.hardTimeoutMs) || 15000;
+    let timer = 0;
+    const result = await Promise.race([
+      globalThis.pagexCollector.collectPage(options),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          // Stop the in-page loop too, so it does not keep clicking.
+          globalThis.pagexCollector.abort?.(options && options.runToken);
+          reject(new Error(`frame collection timed out after ${timeoutMs / 1000} s`));
+        }, timeoutMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
+
+    return { ok: true, result };
+  } catch (error) {
+    return {
+      ok: false,
+      frameUrl: window.location.href,
+      errorMessage:
+        error instanceof Error && error.message ? error.message : 'frame collection failed',
+    };
   }
+}
 
-  if (url.startsWith('chrome://')) {
-    throw new Error('Chrome internal pages cannot be parsed.');
+// Main frame and sub-frames are collected in parallel and independently, so a
+// stuck ad iframe can never block or duplicate the main-frame collection.
+async function collectFrames(tabId, jobId) {
+  const mainOptions = { ...PAGEX_PARSE_OPTIONS, runToken: jobId };
+  const subFrameOptions = { ...mainOptions, ...PAGEX_SUBFRAME_OPTION_OVERRIDES };
+  const mainPromise = chrome.scripting.executeScript({
+    target: { tabId, frameIds: [0] },
+    func: collectPageInFrame,
+    args: [mainOptions],
+  });
+
+  const discovered = await getDiscoveredFrames(tabId);
+  const subFrameIds = discovered
+    .map((frame) => frame.frameId)
+    .filter((frameId) => frameId !== 0)
+    .slice(0, PAGEX_BATCH_LIMITS.maxSubFrames);
+
+  const subPromises = subFrameIds.map((frameId) =>
+    collectSubFrame(tabId, frameId, subFrameOptions).catch(() => null),
+  );
+
+  const [mainResults, ...subResults] = await Promise.all([mainPromise, ...subPromises]);
+
+  return [...mainResults, ...subResults.filter(Boolean)];
+}
+
+async function collectSubFrame(tabId, frameId, options) {
+  const target = { tabId, frameIds: [frameId] };
+  let timer = 0;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      chrome.scripting
+        .executeScript({
+          target,
+          func: (token) => globalThis.pagexCollector?.abort?.(token),
+          args: [options.runToken],
+        })
+        .catch(() => {});
+      resolve({
+        frameId,
+        result: { ok: false, errorMessage: 'frame did not respond in time' },
+      });
+    }, PAGEX_BATCH_LIMITS.subFrameTimeoutMs);
+  });
+
+  const work = (async () => {
+    await chrome.scripting.executeScript({ target, files: ['content.js'] });
+
+    const [entry] = await chrome.scripting.executeScript({
+      target,
+      func: collectPageInFrame,
+      args: [options],
+    });
+
+    return entry || null;
+  })();
+
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
   }
-
-  if (url.startsWith('chrome-extension://')) {
-    throw new Error('Extension pages cannot be parsed.');
-  }
-
-  if (url.startsWith('edge://')) {
-    throw new Error('Browser internal pages cannot be parsed.');
-  }
-
-  if (url.startsWith('about:')) {
-    throw new Error('This browser page cannot be parsed.');
-  }
-
-  if (url.startsWith('file://')) {
-    throw new Error('Local file pages cannot be parsed without file access permission.');
-  }
-
-  if (url.startsWith('devtools://')) {
-    throw new Error('Developer tools pages cannot be parsed.');
-  }
-
-  return tab;
 }
 
 async function getDiscoveredFrames(tabId) {
   try {
     const frames = await chrome.webNavigation.getAllFrames({ tabId });
 
-    if (Array.isArray(frames)) {
-      return frames;
-    }
-  } catch (error) {
+    return Array.isArray(frames) ? frames : [];
+  } catch {
     return [];
   }
-
-  return [];
 }
 
-async function writeStageState({
-  requestId,
-  selectedTabId,
-  stageKey,
-  stageLabel,
-}) {
-  const state = createRunningState({
-    requestId,
-    selectedTabId,
-    stageKey,
-    stageLabel,
-  });
-
-  await writeState(state);
-}
-
-async function writeState(state) {
-  await chrome.storage.session.set({
-    [PAGEX_STATE_KEY]: state,
-  });
-}
-
-function getErrorMessage(error) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
-
-  if (typeof error === 'string' && error.trim()) {
-    return error.trim();
-  }
-
-  return 'An unexpected parsing error occurred.';
-}
-
-chrome.tabs.onRemoved.addListener(async (tabId) => {
+async function isFileAccessAllowed() {
   try {
-    const stored = await chrome.storage.session.get(PAGEX_STATE_KEY);
-    const parseState = stored[PAGEX_STATE_KEY];
-
-    if (parseState && parseState.selectedTabId === tabId) {
-      await chrome.storage.session.remove(PAGEX_STATE_KEY);
-    }
+    return Boolean(await chrome.extension.isAllowedFileSchemeAccess());
   } catch {
-    // Storage access may fail during shutdown — safe to ignore.
+    return false;
   }
-});
+}
+
+function isCancelled(jobId) {
+  return cancelledJobIds.has(jobId) || !currentJob || currentJob.jobId !== jobId;
+}
+
+function assertActive(jobId) {
+  if (isCancelled(jobId)) {
+    throw new Error('job cancelled');
+  }
+}
+
+async function mutateJob(jobId, update) {
+  if (!currentJob || currentJob.jobId !== jobId || cancelledJobIds.has(jobId)) {
+    return;
+  }
+
+  currentJob = update(currentJob);
+
+  try {
+    await persistJob();
+  } catch {
+    // Storage write failed (e.g. quota). The in-memory job stays correct and
+    // the next successful write carries the latest state.
+  }
+}
+
+// Serializes writes so snapshots land in storage in the order they were made.
+function persistJob() {
+  const snapshot = currentJob;
+
+  persistChain = persistChain
+    .catch(() => {})
+    .then(() => chrome.storage.session.set({ [PAGEX_JOB_KEY]: snapshot }));
+
+  return persistChain;
+}
+
+async function readStoredJob() {
+  try {
+    const stored = await chrome.storage.session.get(PAGEX_JOB_KEY);
+
+    return stored[PAGEX_JOB_KEY] || null;
+  } catch {
+    return null;
+  }
+}

@@ -5,7 +5,7 @@
 - [ ] Run `npm run generate:store-assets`
 - [ ] Run `npm run package`
 - [ ] Confirm upload archive exists:
-  - `release/pagex-v0.3.0.zip`
+  - `release/pagex-v0.4.0.zip`
 - [ ] Confirm runtime icons exist:
   - `assets/icons/pagex-16.png`
   - `assets/icons/pagex-32.png`
@@ -82,7 +82,7 @@
 "Injects a content script into the selected tab to collect page structure, scroll for screenshots, and read localStorage/sessionStorage. Only activates on user action."
 
 **storage:**
-"Stores extension session state (parse status, result summaries) locally on the device. No data is synced to external servers."
+"Stores batch status and the compressed results of the latest batch in chrome.storage.session (cleared when the browser closes), plus two settings in chrome.storage.local. No data is synced to external servers."
 
 **tabs:**
 "Reads tab titles and URLs to populate the tab picker in the popup. This information is only used locally and never transmitted."

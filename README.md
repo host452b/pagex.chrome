@@ -6,23 +6,28 @@ Pagex is a Chrome Manifest V3 extension that extracts the current page into AI-f
 
 ## Features / 功能
 
-- 在 popup 中选择目标 tab / choose the target tab from the popup
-- 点击 `Extract Page` 后执行增强但带保护的页面采集 / click `Extract Page` to run an aggressive but guarded collection pass
+- 在 popup 中勾选一个或多个 tab 批量提取（每批最多 20 个，并发 3 个）/ tick one or many tabs in the popup and extract them as one batch (up to 20 per batch, 3 at a time)
+- 单页下载 JSON，多页打包为一个 ZIP；可选完成后自动下载 / one page downloads as JSON, several pages as one ZIP; optional auto-download when done
+- 每个 tab 实时显示进度，无法读取或失败的页面给出易懂原因 / live per-tab progress with plain-language reasons for unreadable or failed pages
+- 首次使用快速上手引导，中英文界面（跟随浏览器语言），浅色/深色主题 / first-run quick start, English and Simplified Chinese UI (follows browser language), light and dark themes
+- 后台 tab 原地读取，不切换页面；有时间预算，卡住的页面不会拖垮整批 / background tabs are read in place without switching; time budgets keep one stuck page from stalling the batch
 - 自动展开常见折叠内容，如 `details`、`aria-expanded="false"` 和常见 accordion 控件 / expand common disclosure patterns such as `details`, `aria-expanded="false"`, and common accordion controls
 - 通过自动滚动触发部分 lazy-loaded 内容 / trigger lazy-loaded content by auto-scrolling the page
 - 采集 DOM 与 shadow DOM，并输出结构化 JSON / collect DOM and shadow DOM nodes into structured JSON
 - 合并可访问 iframe 结果，并显式标记跳过或失败的 frame / merge accessible iframe results and mark skipped or failed frames explicitly
-- 在 popup 中展示完成反馈，并支持一键复制 JSON / show completion feedback in the popup and copy the final JSON with one click
-- 按选中站点的 origin 动态申请权限，而不是永久持有全站权限 / request site access for the selected origin at parse time instead of holding permanent all-site access
+- 按选中站点的 origin 动态申请权限（多个站点合并为一次授权）；也可在设置中一次性授权所有网站 / request site access per origin at parse time (one prompt for all selected sites), or grant all sites once from Settings
+- 整页截图与 cookies.txt 导出（针对单个勾选的 tab）/ full-page screenshot and cookies.txt export for a single ticked tab
 - 默认导出更紧凑的结果，包含敏感属性过滤、URL scrub 和遍历预算 / export a more compact payload by default with sensitive attribute filtering, URL scrubbing, and traversal budgets
 
 ## File Layout / 项目结构
 
 - `manifest.json`: MV3 插件清单 / MV3 extension manifest
-- `background.js`: 解析任务编排与 session 状态存储 / parse orchestration and session state storage
+- `background.js`: 批量任务编排（并发、停止、错误分类）与 session 状态存储 / batch orchestration (concurrency, stop, error classification) and session state storage
 - `content.js`: 注入目标页面的核心采集器 / in-page collector injected into the target tab
 - `popup.html`, `popup.css`, `popup.js`: popup 界面、动画和交互流程 / popup UI, animation, and interaction flow
-- `src/shared/`: 共享状态、权限与格式化工具 / shared state, permission, and formatting utilities
+- `src/shared/`: 共享状态、权限、压缩、ZIP、文件名等工具 / shared job state, permissions, compression, ZIP, and file-name utilities
+- `src/popup/`: popup 专用模块（i18n、截图、cookies、下载）/ popup-only modules (i18n, screenshot, cookies, download)
+- `_locales/`: 界面文案（en、zh_CN）/ UI strings (en, zh_CN)
 - `fixtures/`: 本地手工验证页面 / manual verification pages
 - `tests/`: 基于 Node 的单元测试 / Node-based unit tests
 
@@ -36,13 +41,12 @@ Pagex is a Chrome Manifest V3 extension that extracts the current page into AI-f
 
 ## Use / 使用
 
-1. 打开你想解析的网页。Open the page you want to parse.
-2. 点击 `Pagex` 插件图标。Click the `Pagex` extension icon.
-3. 在下拉框中选择目标 tab。Choose the target tab in the dropdown.
-4. 点击 `Extract Page`。Click `Extract Page`.
-5. 如果 Chrome 弹出权限请求，允许当前站点访问。Approve the site access prompt if Chrome asks for it.
-6. 等待 popup 显示成功状态，提取过程中会有进度条指示。Wait until the popup shows the success state — a progress bar indicates extraction activity.
-7. 点击 `Copy JSON` 复制结构化结果。Click `Copy JSON` to copy the structured payload.
+1. 打开你想解析的网页。Open the page(s) you want to parse.
+2. 点击 `Pagex` 插件图标，当前 tab 已自动勾选。Click the `Pagex` icon; the current tab is already ticked.
+3. 需要批量时，多勾选几个 tab。Tick more tabs to extract several at once.
+4. 点击 `提取页面 / Extract page`。如果 Chrome 弹出权限请求，选择允许。Press `Extract`; approve the site access prompt if Chrome asks.
+5. 可以关闭 popup，提取会在后台继续。You can close the popup; extraction continues in the background.
+6. 完成后自动下载（单页 JSON / 多页 ZIP），或点击 `下载 / Download`；每行也可单独下载。Files download automatically when done (JSON for one page, ZIP for several), or press `Download`; each row also has its own download button.
 
 ## Local Fixture / 本地验证页
 
@@ -51,7 +55,7 @@ Pagex is a Chrome Manifest V3 extension that extracts the current page into AI-f
 You can manually verify the collector with `fixtures/demo-page.html`.
 
 1. 在 Chrome 中打开 `fixtures/demo-page.html`。Open `fixtures/demo-page.html` in Chrome.
-2. 如果 Chrome 阻止插件访问本地文件，请在扩展详情中启用 `Allow access to file URLs`。If Chrome blocks extension access on local files, enable `Allow access to file URLs` for the extension.
+2. 在扩展详情中启用 `Allow access to file URLs`，否则本地文件会显示为不可读取。Enable `Allow access to file URLs` in the extension details; otherwise local files show as unreadable.
 3. 执行 `Extract Page`，确认结果包含以下内容。Run `Extract Page` and check that the output includes:
    - 原生 `details` 内容 / details content
    - `Read more` 展开内容 / `Read more` expanded content
@@ -135,3 +139,5 @@ Current brand direction:
 - 部分跨域 iframe 仍可能因为 Chrome 限制而被标记为跳过或失败。Some cross-origin iframes may still be marked as skipped or failed because Chrome can restrict frame injection even when the page itself is scriptable.
 - 默认导出的是压缩后的 AI 友好结构，不会携带完整样式表源码。The collector stores compact AI-friendly structure and style summaries, not full stylesheet source.
 - 结果里会对部分敏感属性做过滤，并去掉 `href` / `src` 中的 query 与 hash。Sensitive attributes are filtered, and exported `href` / `src` values have query strings and hashes removed.
+- 结果以压缩形式保存在 `chrome.storage.session`（内存，浏览器关闭即清除），开始新一批时清除上一批。Results are kept compressed in `chrome.storage.session` (memory only, cleared when the browser closes); a new batch deletes the previous one.
+- 后台 tab 不渲染，依赖滚动触发的懒加载内容可能缺失；需要完整内容时先切到该 tab 再提取。Background tabs don't render, so scroll-triggered lazy content may be missing; switch to the tab first when you need everything.

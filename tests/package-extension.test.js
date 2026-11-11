@@ -23,6 +23,8 @@ async function createFixtureProject() {
   const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'pagex-package-'));
 
   await mkdir(path.join(projectRoot, 'src', 'shared'), { recursive: true });
+  await mkdir(path.join(projectRoot, 'src', 'popup'), { recursive: true });
+  await mkdir(path.join(projectRoot, '_locales', 'en'), { recursive: true });
   await mkdir(path.join(projectRoot, 'assets', 'icons'), { recursive: true });
   await mkdir(path.join(projectRoot, 'tests'), { recursive: true });
   await mkdir(path.join(projectRoot, 'fixtures'), { recursive: true });
@@ -62,6 +64,15 @@ async function createFixtureProject() {
     path.join(projectRoot, 'src', 'shared', 'constants.js'),
     'export const version = "0.1.0";\n',
   );
+  await writeFile(
+    path.join(projectRoot, 'src', 'shared', 'package-extension.js'),
+    'import "node:fs";\n',
+  );
+  await writeFile(path.join(projectRoot, 'src', 'popup', 'i18n.js'), 'export {};\n');
+  await writeFile(
+    path.join(projectRoot, '_locales', 'en', 'messages.json'),
+    '{"extDescription":{"message":"x"}}\n',
+  );
 
   return projectRoot;
 }
@@ -83,6 +94,7 @@ test('collectPackageFiles keeps only extension runtime files', async () => {
     const files = await collectPackageFiles(projectRoot);
 
     assert.deepEqual(files, [
+      '_locales/en/messages.json',
       'assets/icons/pagex-16.png',
       'assets/icons/pagex-32.png',
       'background.js',
@@ -91,6 +103,7 @@ test('collectPackageFiles keeps only extension runtime files', async () => {
       'popup.css',
       'popup.html',
       'popup.js',
+      'src/popup/i18n.js',
       'src/shared/constants.js',
     ]);
   } finally {

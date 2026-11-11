@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Pagex",
-  "version": "0.3.0",
-  "description": "Extract page content into AI-ready JSON, capture full-page screenshots, and export cookies — all offline.",
+  "version": "0.4.0",
+  "default_locale": "en",
+  "description": "__MSG_extDescription__",
   "permissions": [
     "activeTab",
     "cookies",

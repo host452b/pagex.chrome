@@ -1,5 +1,5 @@
 (function attachPagexCollector() {
-  const collectorVersion = '0.1.0';
+  const collectorVersion = '0.2.0';
 
   if (
     globalThis.pagexCollector &&
@@ -17,6 +17,9 @@
     clickDelayMs: 120,
     settleDelayMs: 250,
     scrollDelayMs: 180,
+    expandBudgetMs: 6000,
+    scrollBudgetMs: 3000,
+    hardTimeoutMs: 15000,
     maxTextLength: 4000,
     maxAttributeValueLength: 500,
     maxElements: 1600,
@@ -77,9 +80,77 @@
     return merged;
   }
 
+  // The run currently in progress in this frame; `abort()` flips its flag.
+  let activeRun = null;
+  // Tokens (job ids) aborted in this frame. Sticky, so an abort that arrives
+  // before a run starts still cancels it, and scoped, so an old job's late
+  // abort cannot cancel a newer job.
+  const abortedTokens = [];
+
+  function isPageHidden() {
+    return document.visibilityState === 'hidden';
+  }
+
+  // Yields one task without timers. Background tabs throttle setTimeout to
+  // once per second (or once per minute after a while), which would stall
+  // the expand loop; MessageChannel tasks are not throttled.
+  function yieldTask() {
+    if (typeof MessageChannel !== 'function') {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        resolve();
+      };
+      channel.port2.postMessage(0);
+    });
+  }
+
+  // Hidden-tab replacement for a timed wait: resolves on the next DOM
+  // mutation (frameworks re-render via microtasks / MessageChannel, which
+  // background tabs do not throttle) or after a bounded number of yields.
+  async function waitForDomChange(maxYields) {
+    if (typeof MutationObserver !== 'function' || !document.documentElement) {
+      await yieldTask();
+      return;
+    }
+
+    let changed = false;
+    const observer = new MutationObserver(() => {
+      changed = true;
+    });
+
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+
+    try {
+      for (let index = 0; index < maxYields && !changed; index += 1) {
+        await yieldTask();
+      }
+
+      if (changed) {
+        // Let the rest of the same update land.
+        await yieldTask();
+      }
+    } finally {
+      observer.disconnect();
+    }
+  }
+
   function sleep(delayMs) {
     if (!Number.isFinite(delayMs) || delayMs <= 0) {
       return Promise.resolve();
+    }
+
+    if (isPageHidden()) {
+      return waitForDomChange(30);
     }
 
     return new Promise((resolve) => {
@@ -855,7 +926,7 @@
     }
   }
 
-  async function clickExpandableElements(options, stats, warnings, seenElements) {
+  async function clickExpandableElements(options, stats, warnings, seenElements, run) {
     const selector = [
       'summary',
       '[aria-expanded="false"]',
@@ -878,6 +949,16 @@
     let clickedThisRound = 0;
 
     for (const candidate of candidates) {
+      if (run.aborted) {
+        break;
+      }
+
+      if (Date.now() > run.expandDeadline) {
+        pushWarning(warnings, 'expand time budget reached, some sections may stay collapsed');
+        run.expandBudgetExhausted = true;
+        break;
+      }
+
       if (stats.totalClicks >= options.maxTotalClicks) {
         pushWarning(warnings, 'reached max click limit');
         break;
@@ -911,7 +992,7 @@
     return clickedThisRound;
   }
 
-  async function autoScrollPage(options, stats) {
+  async function autoScrollPage(options, stats, warnings, run) {
     if (!options.enableAutoScroll) {
       return;
     }
@@ -930,7 +1011,18 @@
       return;
     }
 
+    const scrollDeadline = Date.now() + (Number(options.scrollBudgetMs) || 0);
+
     for (let passIndex = 0; passIndex < options.autoScrollPasses; passIndex += 1) {
+      if (run.aborted) {
+        break;
+      }
+
+      if (Number.isFinite(options.scrollBudgetMs) && Date.now() > scrollDeadline) {
+        pushWarning(warnings, 'scroll time budget reached, some lazy content may be missing');
+        break;
+      }
+
       const ratio = (passIndex + 1) / options.autoScrollPasses;
       const targetY = Math.floor(documentHeight * ratio);
 
@@ -1052,6 +1144,34 @@
   async function collectPage(userOptions) {
     const options = mergeOptions(userOptions);
     const warnings = [];
+    const pageHidden = isPageHidden();
+    const runToken = typeof options.runToken === 'string' ? options.runToken : '';
+    const run = {
+      token: runToken,
+      aborted: Boolean(runToken) && abortedTokens.includes(runToken),
+      expandBudgetExhausted: false,
+      expandDeadline:
+        Date.now() +
+        (Number.isFinite(options.expandBudgetMs) ? options.expandBudgetMs : Infinity),
+    };
+
+    if (run.aborted) {
+      throw new Error('collection cancelled');
+    }
+
+    if (activeRun) {
+      activeRun.aborted = true;
+    }
+
+    activeRun = run;
+
+    if (pageHidden) {
+      pushWarning(
+        warnings,
+        'page was in a background tab; content that loads on scroll may be missing',
+      );
+    }
+
     const stats = {
       openedDetails: 0,
       clickedExpanders: 0,
@@ -1069,16 +1189,25 @@
         stats,
         warnings,
         seenElements,
+        run,
       );
 
       await sleep(options.settleDelayMs);
 
-      if (clickedCount === 0) {
+      if (clickedCount === 0 || run.aborted || run.expandBudgetExhausted) {
         break;
       }
     }
 
-    await autoScrollPage(options, stats);
+    await autoScrollPage(options, stats, warnings, run);
+
+    if (activeRun === run) {
+      activeRun = null;
+    }
+
+    if (run.aborted) {
+      throw new Error('collection cancelled');
+    }
 
     const collected = collectElements(options, warnings);
     const elements = collected.elements;
@@ -1088,6 +1217,7 @@
       title: document.title || '',
       frameUrl: window.location.href,
       collectedAt: new Date().toISOString(),
+      pageHidden,
       resultSizeBytes: collected.resultSizeBytes,
       warnings,
       stats,
@@ -1096,8 +1226,33 @@
   }
 
   // expose a reusable collector for dynamic injection
+  // abort(token) cancels the run for that job (now or when it starts);
+  // abort() with no token cancels whatever is running.
+  function abort(token) {
+    if (typeof token === 'string' && token) {
+      if (!abortedTokens.includes(token)) {
+        abortedTokens.push(token);
+
+        if (abortedTokens.length > 20) {
+          abortedTokens.shift();
+        }
+      }
+
+      if (activeRun && activeRun.token === token) {
+        activeRun.aborted = true;
+      }
+
+      return;
+    }
+
+    if (activeRun) {
+      activeRun.aborted = true;
+    }
+  }
+
   globalThis.pagexCollector = {
     version: collectorVersion,
     collectPage,
+    abort,
   };
 })();

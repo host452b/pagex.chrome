@@ -1,1096 +1,993 @@
 import {
+  PAGEX_BATCH_LIMITS,
+  PAGEX_DEFAULT_SETTINGS,
+  PAGEX_GUIDE_DISMISSED_KEY,
+  PAGEX_JOB_KEY,
   PAGEX_MESSAGE_TYPES,
-  PAGEX_STATE_KEY,
+  PAGEX_SETTINGS_KEY,
 } from './src/shared/constants.js';
+import { PAGEX_ERROR_CODES } from './src/shared/error-codes.js';
 import {
-  formatResultForCopy,
-  sortTabsForPicker,
-} from './src/shared/result-utils.js';
+  buildBatchArchiveName,
+  buildCookiesFileName,
+  buildResultFileName,
+  buildScreenshotFileName,
+  dedupeFileNames,
+} from './src/shared/filenames.js';
 import {
-  canCopyForSelectedTab,
-  getResultMismatchMessage,
-  isParseButtonDisabled,
-} from './src/shared/popup-state.js';
-import { buildOriginPermissionPattern } from './src/shared/origin-permissions.js';
-import { calculateScrollPositions } from './src/shared/screenshot-utils.js';
-import { formatCookiesTxt } from './src/shared/cookies-utils.js';
+  getDownloadableTabs,
+  getJobProgress,
+  summarizeJob,
+} from './src/shared/job-state.js';
+import {
+  buildOriginPermissionPattern,
+  collectOriginPatterns,
+} from './src/shared/origin-permissions.js';
+import { loadResultText } from './src/shared/result-store.js';
+import { formatBytes } from './src/shared/result-utils.js';
+import {
+  buildTabEntries,
+  getDefaultSelection,
+  getHost,
+  getSelectedEligibleIds,
+  isSelectionSameAsJob,
+  toggleSelectAll,
+} from './src/shared/selection.js';
+import { createZip } from './src/shared/zip.js';
+import { collectCookieExport } from './src/popup/cookies.js';
+import { downloadBlob } from './src/popup/download.js';
+import { applyI18n, t } from './src/popup/i18n.js';
+import { createMotion } from './src/popup/jelly.js';
+import { captureFullPage } from './src/popup/screenshot.js';
 
-// Maps each background stage to cumulative estimated seconds.
-// Based on real timing: injection can wait up to 8s for iframe timeout,
-// collection can wait up to 15s per frame + 8s iframe fallback.
-const STAGE_PROGRESS = {
-  preparing: { cumulative: 2, total: 30 },
-  injecting: { cumulative: 10, total: 30 },
-  collecting: { cumulative: 25, total: 30 },
-  inspecting: { cumulative: 28, total: 30 },
-  finalizing: { cumulative: 30, total: 30 },
+const ALL_SITES = ['<all_urls>'];
+
+const ERROR_MESSAGE_KEYS = {
+  [PAGEX_ERROR_CODES.NO_URL]: 'errNoUrl',
+  [PAGEX_ERROR_CODES.BROWSER_PAGE]: 'errBrowserPage',
+  [PAGEX_ERROR_CODES.EXTENSION_PAGE]: 'errExtensionPage',
+  [PAGEX_ERROR_CODES.WEB_STORE]: 'errWebStore',
+  [PAGEX_ERROR_CODES.FILE_ACCESS]: 'errFileAccess',
+  [PAGEX_ERROR_CODES.UNSUPPORTED_SCHEME]: 'errUnsupportedScheme',
+  [PAGEX_ERROR_CODES.PERMISSION]: 'errPermission',
+  [PAGEX_ERROR_CODES.TAB_CLOSED]: 'errTabClosed',
+  [PAGEX_ERROR_CODES.NAVIGATED]: 'errNavigated',
+  [PAGEX_ERROR_CODES.ERROR_PAGE]: 'errErrorPage',
+  [PAGEX_ERROR_CODES.TIMEOUT]: 'errTimeout',
+  [PAGEX_ERROR_CODES.MAIN_FRAME]: 'errMainFrame',
+  [PAGEX_ERROR_CODES.STORAGE_FULL]: 'errStorageFull',
+  [PAGEX_ERROR_CODES.TOO_LARGE]: 'errTooLarge',
+  [PAGEX_ERROR_CODES.INTERRUPTED]: 'errInterrupted',
+  [PAGEX_ERROR_CODES.BUSY]: 'errBusy',
+  [PAGEX_ERROR_CODES.UNKNOWN]: 'errUnknown',
 };
 
-const viewState = {
-  tabs: [],
-  parseState: null,
-  isStartingParse: false,
-  isCapturingScreenshot: false,
-  stopRequested: false,
-  parseStartedAt: 0,
-  countdownTimer: 0,
-  copyResetTimer: 0,
-  toolsFeedbackTimer: 0,
+const CHIP_KEYS = {
+  queued: 'chipQueued',
+  preparing: 'chipPreparing',
+  injecting: 'chipInjecting',
+  collecting: 'chipCollecting',
+  finalizing: 'chipFinalizing',
+  done: 'chipDone',
+  error: 'chipError',
+  cancelled: 'chipCancelled',
 };
 
-const elements = {
+const view = {
+  entries: [],
+  selected: new Set(),
+  job: null,
+  settings: { ...PAGEX_DEFAULT_SETTINGS },
+  // Local, pre-job phase: 'idle' | 'permission' | 'starting'.
+  phase: 'idle',
+  permissionSiteCount: 0,
+  pickerHintOverride: '',
+  localError: '',
+  // Jobs this popup saw running; only those may auto-download on finish.
+  watchedJobIds: new Set(),
+  savedJobId: '',
+  savedFileName: '',
+  downloadFlashTimer: 0,
+  ticker: 0,
+  busyTool: '',
+  toolsMessage: '',
+  toolsMessageTimer: 0,
+};
+
+const dom = {
   app: document.getElementById('app'),
-  tabSelect: document.getElementById('tabSelect'),
-  parseButton: document.getElementById('parseBtn'),
-  copyButton: document.getElementById('copyBtn'),
-  statusText: document.getElementById('statusText'),
-  detailText: document.getElementById('detailText'),
-  framesValue: document.getElementById('framesValue'),
+  statusPill: document.getElementById('statusPill'),
+  settingsBtn: document.getElementById('settingsBtn'),
+  settingsPanel: document.getElementById('settingsPanel'),
+  autoDownloadToggle: document.getElementById('autoDownloadToggle'),
+  allSitesToggle: document.getElementById('allSitesToggle'),
+  allSitesHint: document.getElementById('allSitesHint'),
+  showGuideBtn: document.getElementById('showGuideBtn'),
+  guide: document.getElementById('guide'),
+  guideDismissBtn: document.getElementById('guideDismissBtn'),
+  selectionCount: document.getElementById('selectionCount'),
+  selectAllBtn: document.getElementById('selectAllBtn'),
+  tabList: document.getElementById('tabList'),
+  pickerHint: document.getElementById('pickerHint'),
+  progress: document.getElementById('progress'),
+  progressFill: document.getElementById('progressFill'),
+  runMessage: document.getElementById('runMessage'),
+  extractBtn: document.getElementById('extractBtn'),
+  downloadBtn: document.getElementById('downloadBtn'),
+  downloadLabel: document.getElementById('downloadLabel'),
+  pagesValue: document.getElementById('pagesValue'),
   elementsValue: document.getElementById('elementsValue'),
   clicksValue: document.getElementById('clicksValue'),
   sizeValue: document.getElementById('sizeValue'),
   summaryNote: document.getElementById('summaryNote'),
-  copyFeedback: document.getElementById('copyFeedback'),
-  screenshotButton: document.getElementById('screenshotBtn'),
-  cookiesButton: document.getElementById('cookiesBtn'),
-  toolsFeedback: document.getElementById('toolsFeedback'),
+  screenshotBtn: document.getElementById('screenshotBtn'),
+  screenshotLabel: document.getElementById('screenshotLabel'),
+  cookiesBtn: document.getElementById('cookiesBtn'),
+  cookiesLabel: document.getElementById('cookiesLabel'),
+  toolsHint: document.getElementById('toolsHint'),
 };
+
+const rowElements = new Map();
+const motion = createMotion(dom.app, { clip: dom.tabList });
 
 void init();
 
 async function init() {
+  applyI18n(document);
   bindEvents();
-  await loadTabs();
-  await loadStoredState();
-  syncSelectedTab();
+
+  const [tabs, sessionData, localData, fileAccessAllowed, hasAllSites] = await Promise.all([
+    chrome.tabs.query({ currentWindow: true }),
+    chrome.storage.session.get(PAGEX_JOB_KEY),
+    chrome.storage.local.get([PAGEX_SETTINGS_KEY, PAGEX_GUIDE_DISMISSED_KEY]),
+    chrome.extension.isAllowedFileSchemeAccess().catch(() => false),
+    chrome.permissions.contains({ origins: ALL_SITES }).catch(() => false),
+  ]);
+
+  const activeTab = tabs.find((tab) => tab.active);
+
+  view.job = sessionData[PAGEX_JOB_KEY] || null;
+  view.settings = { ...PAGEX_DEFAULT_SETTINGS, ...(localData[PAGEX_SETTINGS_KEY] || {}) };
+  view.entries = buildTabEntries(tabs, activeTab ? activeTab.id : null, { fileAccessAllowed });
+  view.selected = new Set(getDefaultSelection(view.entries, view.job));
+
+  if (view.job && view.job.status === 'running') {
+    view.watchedJobIds.add(view.job.jobId);
+    // Wakes the worker; if it died mid-job it marks the job interrupted.
+    chrome.runtime.sendMessage({ type: PAGEX_MESSAGE_TYPES.PING }).catch(() => {});
+  }
+
+  dom.guide.hidden = Boolean(localData[PAGEX_GUIDE_DISMISSED_KEY]);
+  dom.autoDownloadToggle.checked = Boolean(view.settings.autoDownload);
+  dom.allSitesToggle.checked = hasAllSites;
+
   render();
 }
 
 function bindEvents() {
-  elements.parseButton.addEventListener('click', () => {
-    if (isRunning()) {
-      void handleStopClick();
+  dom.extractBtn.addEventListener('click', () => {
+    motion.jiggle(dom.extractBtn, { strength: 0.9 });
+
+    if (isJobRunning()) {
+      void handleStop();
     } else {
-      void handleParseClick();
+      void handleExtract();
     }
   });
 
-  elements.copyButton.addEventListener('click', () => {
-    void handleCopyClick();
+  dom.downloadBtn.addEventListener('click', () => {
+    motion.jiggle(dom.downloadBtn, { strength: 0.9 });
+    void handleDownload();
   });
 
-  elements.screenshotButton.addEventListener('click', () => {
-    void handleScreenshotClick();
-  });
-
-  elements.cookiesButton.addEventListener('click', () => {
-    void handleCookiesClick();
-  });
-
-  elements.tabSelect.addEventListener('change', () => {
-    resetCopyFeedback();
+  dom.selectAllBtn.addEventListener('click', () => {
+    view.selected = new Set(
+      toggleSelectAll(view.entries, [...view.selected], PAGEX_BATCH_LIMITS.maxTabs),
+    );
+    view.localError = '';
     render();
+  });
+
+  dom.tabList.addEventListener('change', (event) => {
+    const checkbox = event.target;
+
+    if (!(checkbox instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const tabId = Number(checkbox.dataset.tabId);
+
+    if (checkbox.checked) {
+      if (view.selected.size >= PAGEX_BATCH_LIMITS.maxTabs) {
+        checkbox.checked = false;
+        setPickerHintOverride(t('hintMaxTabs', PAGEX_BATCH_LIMITS.maxTabs));
+        return;
+      }
+
+      view.selected.add(tabId);
+    } else {
+      view.selected.delete(tabId);
+    }
+
+    view.localError = '';
+    render();
+  });
+
+  dom.tabList.addEventListener('click', (event) => {
+    const button = event.target instanceof Element
+      ? event.target.closest('.tab-row__download')
+      : null;
+
+    if (button) {
+      void handleDownload([Number(button.dataset.tabId)]);
+    }
+  });
+
+  dom.screenshotBtn.addEventListener('click', () => {
+    void handleScreenshot();
+  });
+
+  dom.cookiesBtn.addEventListener('click', () => {
+    void handleCookies();
+  });
+
+  dom.settingsBtn.addEventListener('click', () => {
+    const open = dom.settingsPanel.hidden;
+    dom.settingsPanel.hidden = !open;
+    dom.settingsBtn.setAttribute('aria-expanded', String(open));
+  });
+
+  dom.autoDownloadToggle.addEventListener('change', () => {
+    view.settings = { ...view.settings, autoDownload: dom.autoDownloadToggle.checked };
+    void chrome.storage.local.set({ [PAGEX_SETTINGS_KEY]: view.settings });
+    render();
+  });
+
+  dom.allSitesToggle.addEventListener('change', () => {
+    void handleAllSitesToggle();
+  });
+
+  dom.showGuideBtn.addEventListener('click', () => {
+    dom.guide.hidden = false;
+    dom.guideDismissBtn.focus();
+  });
+
+  dom.guideDismissBtn.addEventListener('click', () => {
+    dom.guide.hidden = true;
+    void chrome.storage.local.set({ [PAGEX_GUIDE_DISMISSED_KEY]: true });
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'session') {
+    if (areaName !== 'session' || !changes[PAGEX_JOB_KEY]) {
       return;
     }
 
-    if (!changes[PAGEX_STATE_KEY]) {
-      return;
+    const previous = view.job;
+    const next = changes[PAGEX_JOB_KEY].newValue || null;
+    view.job = next;
+
+    if (next && next.status === 'running') {
+      view.watchedJobIds.add(next.jobId);
     }
 
-    // After the user clicks Stop, ignore state updates from the background
-    // parse that is still winding down. Reset when a new parse starts.
-    if (viewState.stopRequested) {
-      return;
+    const justCompleted =
+      next &&
+      previous &&
+      previous.jobId === next.jobId &&
+      previous.status === 'running' &&
+      next.status === 'completed';
+
+    if (justCompleted && view.watchedJobIds.has(next.jobId) && view.settings.autoDownload) {
+      void handleDownload();
     }
 
-    viewState.parseState = changes[PAGEX_STATE_KEY].newValue || null;
-    syncSelectedTab();
     render();
+
+    if (justCompleted && getDownloadableTabs(next).length > 0) {
+      motion.celebrate(dom.downloadBtn);
+    }
   });
 }
 
-async function loadTabs() {
-  const tabs = await chrome.tabs.query({ currentWindow: true });
-  const availableTabs = [];
-  let activeTabId = 0;
+// ── Actions ─────────────────────────────────
 
-  for (const tab of tabs) {
-    if (!Number.isInteger(tab.id)) {
-      continue;
-    }
-
-    availableTabs.push(tab);
-
-    if (tab.active) {
-      activeTabId = tab.id;
-    }
-  }
-
-  viewState.tabs = sortTabsForPicker(availableTabs, activeTabId);
-  renderTabOptions();
-}
-
-async function loadStoredState() {
-  const stored = await chrome.storage.session.get(PAGEX_STATE_KEY);
-
-  viewState.parseState = stored[PAGEX_STATE_KEY] || null;
-}
-
-function render() {
-  renderStatus();
-  renderSummary();
-  renderButtons();
-}
-
-function renderTabOptions() {
-  elements.tabSelect.textContent = '';
-
-  if (viewState.tabs.length === 0) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'No tabs available';
-    elements.tabSelect.appendChild(option);
-    elements.tabSelect.disabled = true;
-    return;
-  }
-
-  elements.tabSelect.disabled = false;
-
-  for (const tab of viewState.tabs) {
-    const option = document.createElement('option');
-    option.value = String(tab.id);
-    option.textContent = tab.label;
-    elements.tabSelect.appendChild(option);
-  }
-}
-
-function syncSelectedTab() {
-  if (viewState.tabs.length === 0) {
-    return;
-  }
-
-  const preferredTabId = getPreferredTabId();
-
-  if (!Number.isInteger(preferredTabId)) {
-    elements.tabSelect.value = String(viewState.tabs[0].id);
-    return;
-  }
-
-  for (const tab of viewState.tabs) {
-    if (tab.id === preferredTabId) {
-      elements.tabSelect.value = String(preferredTabId);
-      return;
-    }
-  }
-
-  elements.tabSelect.value = String(viewState.tabs[0].id);
-}
-
-function getPreferredTabId() {
-  if (
-    viewState.parseState &&
-    Number.isInteger(viewState.parseState.selectedTabId)
-  ) {
-    return viewState.parseState.selectedTabId;
-  }
-
-  const selectedValue = Number(elements.tabSelect.value);
-
-  if (Number.isInteger(selectedValue) && selectedValue > 0) {
-    return selectedValue;
-  }
-
-  if (viewState.tabs.length > 0) {
-    return viewState.tabs[0].id;
-  }
-
-  return null;
-}
-
-function getCurrentSelectedTabId() {
-  const selectedValue = Number(elements.tabSelect.value);
-
-  if (Number.isInteger(selectedValue) && selectedValue > 0) {
-    return selectedValue;
-  }
-
-  return null;
-}
-
-function renderStatus() {
-  let status = 'idle';
-  let statusText = 'Ready';
-  let detailText =
-    'Step 1: Pick a tab below · Step 2: Click Extract · Step 3: Copy the JSON';
-
-  if (viewState.parseState && viewState.parseState.status) {
-    status = viewState.parseState.status;
-  }
-
-  if (status === 'running') {
-    statusText = viewState.parseState.stageLabel || 'Extracting';
-
-    if (viewState.parseStartedAt) {
-      const stageKey = viewState.parseState.stageKey || '';
-      const stage = STAGE_PROGRESS[stageKey];
-      const elapsed = Math.floor(
-        (Date.now() - viewState.parseStartedAt) / 1000,
-      );
-
-      let remaining;
-
-      if (stage) {
-        // Use whichever is larger: stage-based estimate or elapsed-based.
-        // This avoids the countdown jumping backwards when a stage arrives
-        // earlier than expected.
-        const stageRemaining = stage.total - stage.cumulative;
-        const elapsedRemaining = Math.max(stage.total - elapsed, 0);
-        remaining = Math.min(stageRemaining, elapsedRemaining);
-      } else {
-        remaining = Math.max(30 - elapsed, 0);
-      }
-
-      detailText =
-        remaining > 0
-          ? `Extracting page content · ~${remaining}s remaining`
-          : 'Extracting page content · finishing up...';
-    } else {
-      detailText = 'Extracting page content...';
-    }
-  }
-
-  if (status === 'completed') {
-    statusText = 'Done — ready to copy';
-    detailText =
-      'Extraction complete. Click "Download JSON" to save the file.';
-
-    const mismatchMessage = getResultMismatchMessage(
-      viewState.parseState,
-      getCurrentSelectedTabId(),
-    );
-
-    if (mismatchMessage) {
-      detailText = mismatchMessage;
-    }
-  }
-
-  if (status === 'error') {
-    statusText = 'Needs attention';
-    detailText = viewState.parseState.errorMessage || 'This page could not be extracted.';
-  }
-
-  elements.app.dataset.status = status;
-  elements.statusText.textContent = statusText;
-  elements.detailText.textContent = detailText;
-}
-
-function renderSummary() {
-  resetMetricValues();
-
-  if (!viewState.parseState) {
-    elements.summaryNote.textContent = 'Pick a tab and click "Extract Page" to start.';
-    return;
-  }
-
-  if (viewState.parseState.status === 'running') {
-    elements.summaryNote.textContent =
-      'Extracting — results will appear here.';
-    return;
-  }
-
-  if (viewState.parseState.status === 'error') {
-    elements.summaryNote.textContent =
-      viewState.parseState.errorMessage || 'This page could not be extracted.';
-    return;
-  }
-
-  const summary = viewState.parseState.summary;
-  const mismatchMessage = getResultMismatchMessage(
-    viewState.parseState,
-    getCurrentSelectedTabId(),
+async function handleExtract() {
+  const tabIds = getSelectedEligibleIds(view.entries, [...view.selected]).slice(
+    0,
+    PAGEX_BATCH_LIMITS.maxTabs,
   );
 
-  if (!summary) {
-    elements.summaryNote.textContent = 'No extraction summary available yet.';
+  if (tabIds.length === 0 || view.phase !== 'idle') {
     return;
   }
 
-  if (mismatchMessage) {
-    elements.summaryNote.textContent = mismatchMessage;
-    return;
-  }
+  view.localError = '';
 
-  elements.framesValue.textContent = String(summary.frameCount);
-  elements.elementsValue.textContent = String(summary.elementCount);
-  elements.clicksValue.textContent = String(summary.totalClicks);
-  elements.sizeValue.textContent = summary.resultSizeLabel;
-  elements.summaryNote.textContent = buildSummaryNote(summary);
-}
+  const urls = tabIds.map((tabId) => getEntry(tabId).url);
+  const patterns = collectOriginPatterns(urls);
 
-function resetMetricValues() {
-  elements.framesValue.textContent = '-';
-  elements.elementsValue.textContent = '-';
-  elements.clicksValue.textContent = '-';
-  elements.sizeValue.textContent = '-';
-}
+  if (patterns.length > 0) {
+    view.phase = 'permission';
+    view.permissionSiteCount = patterns.length;
+    render();
 
-function buildSummaryNote(summary) {
-  const noteParts = [];
+    // Called straight from the click so Chrome treats it as a user gesture.
+    // Already-granted origins resolve immediately without a prompt.
+    let granted = false;
 
-  noteParts.push(`${summary.accessibleFrameCount} accessible frame(s)`);
-  noteParts.push(`${summary.skippedFrameCount} skipped frame(s)`);
-  noteParts.push(`${summary.warningCount} warning(s)`);
-
-  return noteParts.join(' • ');
-}
-
-function startCountdown() {
-  stopCountdown();
-  viewState.parseStartedAt = Date.now();
-  viewState.countdownTimer = window.setInterval(() => {
-    if (isRunning()) {
-      renderStatus();
-      renderButtons();
-    } else {
-      stopCountdown();
+    try {
+      granted = await chrome.permissions.request({ origins: patterns });
+    } catch {
+      granted = false;
     }
-  }, 1000);
-}
 
-function stopCountdown() {
-  if (viewState.countdownTimer) {
-    window.clearInterval(viewState.countdownTimer);
-    viewState.countdownTimer = 0;
-  }
-
-  viewState.parseStartedAt = 0;
-}
-
-function isRunning() {
-  if (viewState.isStartingParse) {
-    return true;
-  }
-
-  if (viewState.parseState && viewState.parseState.status === 'running') {
-    return true;
-  }
-
-  return false;
-}
-
-function renderButtons() {
-  const canCopy = canCopyForSelectedTab(
-    viewState.parseState,
-    getCurrentSelectedTabId(),
-  );
-  const running = isRunning();
-
-  elements.copyButton.disabled = !canCopy;
-
-  if (running) {
-    let stopLabel = 'Stop';
-
-    if (viewState.parseStartedAt && viewState.parseState) {
-      const stageKey = viewState.parseState.stageKey || '';
-      const stage = STAGE_PROGRESS[stageKey];
-      const elapsed = Math.floor(
-        (Date.now() - viewState.parseStartedAt) / 1000,
+    if (!granted) {
+      const allowed = await Promise.all(
+        patterns.map((pattern) =>
+          chrome.permissions.contains({ origins: [pattern] }).catch(() => false),
+        ),
       );
+      const allowedPatterns = new Set(patterns.filter((_, index) => allowed[index]));
+      const anyReadable = urls.some((url) => {
+        const pattern = buildOriginPermissionPattern(url);
+        return !pattern || allowedPatterns.has(pattern);
+      });
 
-      let remaining;
-
-      if (stage) {
-        const stageRemaining = stage.total - stage.cumulative;
-        const elapsedRemaining = Math.max(stage.total - elapsed, 0);
-        remaining = Math.min(stageRemaining, elapsedRemaining);
-      } else {
-        remaining = Math.max(30 - elapsed, 0);
+      if (!anyReadable) {
+        view.phase = 'idle';
+        view.localError = t('errPermissionDeniedAll');
+        render();
+        return;
       }
-
-      if (remaining > 0) {
-        stopLabel = `Stop · ${remaining}s`;
-      }
+      // Tabs without access still run and fail with a clear per-tab reason.
     }
-
-    elements.parseButton.disabled = false;
-    elements.parseButton.textContent = stopLabel;
-    elements.parseButton.classList.remove('button--primary');
-    elements.parseButton.classList.add('button--stop');
-    return;
   }
 
-  const parseDisabled = isParseButtonDisabled({
-    hasTabs: viewState.tabs.length > 0,
-    isStartingParse: viewState.isStartingParse,
-    parseState: viewState.parseState,
-  });
-
-  elements.parseButton.disabled = parseDisabled;
-  elements.parseButton.textContent = 'Extract Page';
-  elements.parseButton.classList.remove('button--stop');
-  elements.parseButton.classList.add('button--primary');
-}
-
-async function handleParseClick() {
-  if (
-    isParseButtonDisabled({
-      hasTabs: viewState.tabs.length > 0,
-      isStartingParse: viewState.isStartingParse,
-      parseState: viewState.parseState,
-    })
-  ) {
-    return;
-  }
-
-  const selectedTabId = Number(elements.tabSelect.value);
-
-  if (!Number.isInteger(selectedTabId) || selectedTabId <= 0) {
-    elements.app.dataset.status = 'error';
-    elements.statusText.textContent = 'Needs attention';
-    elements.detailText.textContent = 'Choose a valid tab before extracting.';
-    return;
-  }
-
-  viewState.isStartingParse = true;
-  viewState.stopRequested = false;
-  elements.app.dataset.status = 'running';
-  elements.statusText.textContent = 'Starting';
-  elements.detailText.textContent =
-    'Connecting to the selected page...';
-  startCountdown();
-  renderButtons();
-  resetCopyFeedback();
+  view.phase = 'starting';
+  render();
 
   try {
-    const permissionGranted = await ensureSelectedTabPermission(selectedTabId);
-
-    if (!permissionGranted) {
-      elements.app.dataset.status = 'error';
-      elements.statusText.textContent = 'Permission needed';
-      elements.detailText.textContent =
-        'Chrome needs your permission to read this site. Please allow it and try again.';
-      return;
-    }
-
     const response = await chrome.runtime.sendMessage({
-      type: PAGEX_MESSAGE_TYPES.START_PARSE,
-      tabId: selectedTabId,
+      type: PAGEX_MESSAGE_TYPES.START_BATCH,
+      tabIds,
     });
 
     if (response && response.ok) {
-      return;
-    }
-
-    elements.app.dataset.status = 'error';
-    elements.statusText.textContent = 'Needs attention';
-
-    if (response && response.errorMessage) {
-      elements.detailText.textContent = response.errorMessage;
+      tabIds.forEach((tabId, index) => {
+        motion.jiggle(rowElements.get(tabId)?.root, { strength: 0.55, delay: index * 0.05 });
+      });
+      view.watchedJobIds.add(response.jobId);
+      view.savedJobId = '';
+      view.savedFileName = '';
     } else {
-      elements.detailText.textContent = 'Could not start extraction for this tab.';
+      view.localError = getErrorMessage(response && response.errorCode);
     }
-  } catch (error) {
-    elements.app.dataset.status = 'error';
-    elements.statusText.textContent = 'Needs attention';
-    elements.detailText.textContent = 'Could not connect to the extension. Please try again.';
-  } finally {
-    stopCountdown();
-    viewState.isStartingParse = false;
-    renderButtons();
-  }
-}
-
-async function handleStopClick() {
-  // Immediately reset local state so the UI responds without waiting.
-  stopCountdown();
-  viewState.stopRequested = true;
-  viewState.parseState = null;
-  viewState.isStartingParse = false;
-  elements.app.dataset.status = 'idle';
-  elements.statusText.textContent = 'Stopped';
-  elements.detailText.textContent =
-    'Extraction stopped. Click "Extract Page" to try again.';
-  render();
-
-  // Tell background to release the single-flight lock so a retry can start.
-  try {
-    await chrome.runtime.sendMessage({
-      type: PAGEX_MESSAGE_TYPES.STOP_PARSE,
-    });
   } catch {
-    // Background may not respond — local reset already done above.
+    view.localError = t('errConnect');
+  } finally {
+    view.phase = 'idle';
+    render();
   }
 }
 
-async function ensureSelectedTabPermission(selectedTabId) {
-  const selectedTab = viewState.tabs.find((tab) => tab.id === selectedTabId);
+async function handleStop() {
+  try {
+    await chrome.runtime.sendMessage({ type: PAGEX_MESSAGE_TYPES.STOP_BATCH });
+  } catch {
+    view.localError = t('errConnect');
+    render();
+  }
+}
 
-  if (!selectedTab) {
+async function handleDownload(onlyTabIds) {
+  const job = view.job;
+  let tabs = getDownloadableTabs(job);
+
+  if (Array.isArray(onlyTabIds)) {
+    tabs = tabs.filter((tab) => onlyTabIds.includes(tab.tabId));
+  }
+
+  if (tabs.length === 0) {
+    return;
+  }
+
+  try {
+    const runDate = job.startedAt ? new Date(job.startedAt) : new Date();
+    let blob;
+    let fileName;
+
+    if (tabs.length === 1) {
+      const text = await loadResultText(tabs[0].resultKey);
+      blob = new Blob([text], { type: 'application/json' });
+      fileName = buildResultFileName(tabs[0].url, runDate);
+    } else {
+      const names = dedupeFileNames(tabs.map((tab) => buildResultFileName(tab.url, runDate)));
+      const texts = await Promise.all(tabs.map((tab) => loadResultText(tab.resultKey)));
+      const archive = await createZip(
+        names.map((name, index) => ({ name, data: texts[index] })),
+        { date: runDate },
+      );
+      blob = new Blob([archive], { type: 'application/zip' });
+      fileName = buildBatchArchiveName(runDate);
+    }
+
+    downloadBlob(blob, fileName);
+
+    if (!onlyTabIds) {
+      view.savedJobId = job.jobId;
+      view.savedFileName = fileName;
+      flashDownloadSaved();
+    }
+  } catch {
+    view.localError = t('downloadFailed');
+  }
+
+  render();
+}
+
+function flashDownloadSaved() {
+  window.clearTimeout(view.downloadFlashTimer);
+  dom.downloadBtn.classList.add('button--saved');
+  dom.downloadLabel.textContent = t('downloadSaved');
+
+  view.downloadFlashTimer = window.setTimeout(() => {
+    dom.downloadBtn.classList.remove('button--saved');
+    view.downloadFlashTimer = 0;
+    render();
+  }, 2000);
+}
+
+async function handleAllSitesToggle() {
+  const wantAll = dom.allSitesToggle.checked;
+
+  try {
+    if (wantAll) {
+      const granted = await chrome.permissions.request({ origins: ALL_SITES });
+      dom.allSitesToggle.checked = granted;
+      dom.allSitesHint.textContent = granted
+        ? t('settingAllSitesHint')
+        : t('settingAllSitesDenied');
+    } else {
+      await chrome.permissions.remove({ origins: ALL_SITES });
+      dom.allSitesHint.textContent = t('settingAllSitesHint');
+    }
+  } catch {
+    dom.allSitesToggle.checked = await chrome.permissions
+      .contains({ origins: ALL_SITES })
+      .catch(() => false);
+  }
+}
+
+async function ensureSiteAccess(url) {
+  const pattern = buildOriginPermissionPattern(url);
+
+  if (!pattern) {
+    return true;
+  }
+
+  try {
+    return await chrome.permissions.request({ origins: [pattern] });
+  } catch {
     return false;
   }
-
-  const permissionPattern = buildOriginPermissionPattern(selectedTab.url);
-
-  if (!permissionPattern) {
-    return true;
-  }
-
-  const containsPermission = await chrome.permissions.contains({
-    origins: [permissionPattern],
-  });
-
-  if (containsPermission) {
-    return true;
-  }
-
-  const granted = await chrome.permissions.request({
-    origins: [permissionPattern],
-  });
-
-  if (granted) {
-    return true;
-  }
-
-  return false;
 }
 
-async function handleCopyClick() {
-  if (
-    !canCopyForSelectedTab(viewState.parseState, getCurrentSelectedTabId()) ||
-    !viewState.parseState ||
-    !viewState.parseState.result
-  ) {
+async function handleScreenshot() {
+  const entry = getSingleToolTarget();
+
+  if (!entry || view.busyTool) {
     return;
   }
 
-  const formatted = formatResultForCopy(viewState.parseState.result);
-
-  const selectedTabId = getCurrentSelectedTabId();
-  const tab = viewState.tabs.find((t) => t.id === selectedTabId);
-  let hostname = 'page';
+  view.busyTool = 'screenshot';
+  dom.screenshotLabel.textContent = t('shotPreparing');
+  renderTools();
 
   try {
-    hostname = new URL(tab.url).hostname.replace(/[^a-z0-9.-]/gi, '_');
-  } catch {
-    // Use default hostname.
-  }
-
-  const blob = new Blob([formatted], { type: 'application/json' });
-  downloadBlob(blob, `pagex-${hostname}-${Date.now()}.json`);
-
-  elements.copyButton.classList.add('button--copied');
-  elements.copyButton.textContent = 'Saved';
-  setCopyFeedback('JSON downloaded.');
-}
-
-function setCopyFeedback(text) {
-  if (viewState.copyResetTimer) {
-    window.clearTimeout(viewState.copyResetTimer);
-    viewState.copyResetTimer = 0;
-  }
-
-  elements.copyFeedback.textContent = text;
-
-  viewState.copyResetTimer = window.setTimeout(() => {
-    viewState.copyResetTimer = 0;
-    resetCopyFeedback();
-  }, 2200);
-}
-
-function resetCopyFeedback() {
-  elements.copyFeedback.textContent =
-    'Everything stays on your device. Nothing is sent anywhere.';
-  elements.copyButton.classList.remove('button--copied');
-  elements.copyButton.textContent = 'Download JSON';
-}
-
-async function handleScreenshotClick() {
-  const selectedTabId = getCurrentSelectedTabId();
-
-  if (!selectedTabId) {
-    setToolsFeedback('Choose a valid tab before capturing.');
-    return;
-  }
-
-  if (viewState.isCapturingScreenshot) {
-    return;
-  }
-
-  viewState.isCapturingScreenshot = true;
-  elements.screenshotButton.disabled = true;
-  elements.screenshotButton.textContent = 'Preparing...';
-
-  try {
-    const permissionGranted = await ensureSelectedTabPermission(selectedTabId);
-
-    if (!permissionGranted) {
-      setToolsFeedback('Permission needed to capture this tab.');
+    if (!(await ensureSiteAccess(entry.url))) {
+      setToolsMessage(t('shotPermission'));
       return;
     }
 
-    await chrome.tabs.update(selectedTabId, { active: true });
-    await delay(200);
-
-    // Phase 0: Hide scrollbars so they don't appear in captures.
-    const scrollbarCSS =
-      '::-webkit-scrollbar{display:none!important}*{scrollbar-width:none!important}';
-
-    await chrome.scripting.insertCSS({
-      target: { tabId: selectedTabId },
-      css: scrollbarCSS,
-    });
-
-    // Phase 1: Measure page and unfold non-document scrollable containers.
-    // Many SPAs use overflow:hidden on html/body with a scrollable child div,
-    // and intermediate wrappers (#root, .layout) that constrain height.
-    // We find the main scrollable container, then walk up the ancestor chain
-    // and temporarily remove every height/overflow constraint so the full
-    // content participates in document-level scrolling.
-    const [{ result: dims }] = await chrome.scripting.executeScript({
-      target: { tabId: selectedTabId },
-      func: () => {
-        const viewportHeight = window.innerHeight;
-        const saved = [];
-        let scrollHeight = Math.max(
-          document.body.scrollHeight,
-          document.documentElement.scrollHeight,
-        );
-
-        if (scrollHeight <= viewportHeight + 1) {
-          // Step A: Unfold html and body.
-          for (const el of [document.documentElement, document.body]) {
-            saved.push({ el, css: el.style.cssText });
-            el.style.setProperty('overflow', 'visible', 'important');
-            el.style.setProperty('height', 'auto', 'important');
-            el.style.setProperty('max-height', 'none', 'important');
-          }
-
-          // Step B: Find the primary scrollable container (largest content).
-          let target = null;
-          let maxScroll = 0;
-
-          for (const el of document.querySelectorAll('*')) {
-            if (el === document.documentElement || el === document.body) {
-              continue;
-            }
-
-            const cs = getComputedStyle(el);
-
-            if (
-              (cs.overflowY === 'auto' || cs.overflowY === 'scroll') &&
-              el.scrollHeight > el.clientHeight + 10
-            ) {
-              if (el.scrollHeight > maxScroll) {
-                maxScroll = el.scrollHeight;
-                target = el;
-              }
-            }
-          }
-
-          if (target) {
-            // Step C: Unfold the scrollable container itself.
-            saved.push({ el: target, css: target.style.cssText });
-            target.style.setProperty('overflow', 'visible', 'important');
-            target.style.setProperty('height', 'auto', 'important');
-            target.style.setProperty('max-height', 'none', 'important');
-
-            // Step D: Walk up to body and unfold every ancestor that may
-            // constrain height (e.g. #root, .layout with height:100%).
-            let ancestor = target.parentElement;
-
-            while (ancestor && ancestor !== document.documentElement) {
-              saved.push({ el: ancestor, css: ancestor.style.cssText });
-              ancestor.style.setProperty('overflow', 'visible', 'important');
-              ancestor.style.setProperty('height', 'auto', 'important');
-              ancestor.style.setProperty('max-height', 'none', 'important');
-              ancestor = ancestor.parentElement;
-            }
-          }
-
-          // Re-measure after unfolding.
-          scrollHeight = Math.max(
-            document.body.scrollHeight,
-            document.documentElement.scrollHeight,
-          );
-        }
-
-        window.__pagexSaved = saved;
-
-        return {
-          scrollHeight,
-          viewportHeight,
-          viewportWidth: window.innerWidth,
-          originalScrollX: window.scrollX,
-          originalScrollY: window.scrollY,
-          devicePixelRatio: window.devicePixelRatio || 1,
-        };
+    const { blob, truncated } = await captureFullPage(entry.tabId, {
+      onProgress: (current, total) => {
+        dom.screenshotLabel.textContent = t('shotCapturing', current, total);
       },
     });
 
-    // Phase 2: Pre-scroll to bottom and back to trigger lazy-loaded content,
-    // then re-measure in case the page grew.
-    await chrome.scripting.executeScript({
-      target: { tabId: selectedTabId },
-      func: (h) => window.scrollTo(0, h),
-      args: [dims.scrollHeight],
-    });
-
-    await delay(500);
-
-    await chrome.scripting.executeScript({
-      target: { tabId: selectedTabId },
-      func: () => window.scrollTo(0, 0),
-    });
-
-    await delay(300);
-
-    const [{ result: measuredHeight }] = await chrome.scripting.executeScript({
-      target: { tabId: selectedTabId },
-      func: () =>
-        Math.max(
-          document.body.scrollHeight,
-          document.documentElement.scrollHeight,
-        ),
-    });
-
-    dims.scrollHeight = Math.max(dims.scrollHeight, measuredHeight);
-
-    // Phase 3: Prepare canvas with safe dimensions.
-    // Chrome caps canvas at ~16384px per dimension. For long pages we scale
-    // down so the entire page fits. Each capture is drawn immediately to avoid
-    // holding dozens of full-viewport PNGs in memory at once.
-    const MAX_DIM = 16384;
-    let scale = dims.devicePixelRatio;
-
-    if (dims.viewportWidth * scale > MAX_DIM) {
-      scale = MAX_DIM / dims.viewportWidth;
-    }
-
-    if (dims.scrollHeight * scale > MAX_DIM) {
-      scale = MAX_DIM / dims.scrollHeight;
-    }
-
-    scale = Math.max(scale, 0.5);
-
-    const canvasWidth = Math.round(dims.viewportWidth * scale);
-    const canvasHeight = Math.min(
-      Math.round(dims.scrollHeight * scale),
-      MAX_DIM,
-    );
-    const capturePageHeight = canvasHeight / scale;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-    const ctx = canvas.getContext('2d');
-
-    const positions = calculateScrollPositions(
-      capturePageHeight,
-      dims.viewportHeight,
-    );
-
-    const drawWidth = Math.round(dims.viewportWidth * scale);
-    const drawHeight = Math.round(dims.viewportHeight * scale);
-
-    // Phase 4: Scroll-and-capture loop — draw each frame immediately.
-    // After the first frame, position:fixed/sticky elements are hidden so
-    // headers and floating bars don't duplicate across every viewport slice.
-    for (let i = 0; i < positions.length; i++) {
-      elements.screenshotButton.textContent =
-        `Capturing ${i + 1}/${positions.length}...`;
-
-      await chrome.scripting.executeScript({
-        target: { tabId: selectedTabId },
-        func: (y) => window.scrollTo(0, y),
-        args: [positions[i]],
-      });
-
-      await delay(300);
-
-      // Wait longer if images near the viewport are still loading.
-      const [{ result: hasLoading }] = await chrome.scripting.executeScript({
-        target: { tabId: selectedTabId },
-        func: () => {
-          const vh = window.innerHeight;
-
-          for (const img of document.querySelectorAll('img[src]')) {
-            const r = img.getBoundingClientRect();
-
-            if (r.bottom > 0 && r.top < vh * 2 && !img.complete) {
-              return true;
-            }
-          }
-
-          return false;
-        },
-      });
-
-      if (hasLoading) {
-        await delay(1200);
-      }
-
-      const dataUrl = await chrome.tabs.captureVisibleTab(null, {
-        format: 'png',
-      });
-
-      const [{ result: actualY }] = await chrome.scripting.executeScript({
-        target: { tabId: selectedTabId },
-        func: () => window.scrollY,
-      });
-
-      const img = await loadImage(dataUrl);
-      const drawY = Math.round(actualY * scale);
-      ctx.drawImage(img, 0, drawY, drawWidth, drawHeight);
-
-      // After the first capture, hide fixed/sticky elements so they only
-      // appear once at the top of the stitched image.
-      if (i === 0 && positions.length > 1) {
-        await chrome.scripting.executeScript({
-          target: { tabId: selectedTabId },
-          func: () => {
-            window.__pagexFixedEls = [];
-
-            for (const el of document.querySelectorAll('*')) {
-              const pos = getComputedStyle(el).position;
-
-              if (pos === 'fixed' || pos === 'sticky') {
-                window.__pagexFixedEls.push({
-                  el,
-                  vis: el.style.visibility,
-                });
-                el.style.setProperty('visibility', 'hidden', 'important');
-              }
-            }
-          },
-        });
-      }
-    }
-
-    // Phase 5: Restore fixed/sticky elements, page styles, scrollbar, scroll.
-    await chrome.scripting.executeScript({
-      target: { tabId: selectedTabId },
-      func: (origX, origY) => {
-        for (const { el, vis } of window.__pagexFixedEls || []) {
-          if (vis) {
-            el.style.visibility = vis;
-          } else {
-            el.style.removeProperty('visibility');
-          }
-        }
-
-        delete window.__pagexFixedEls;
-
-        for (const entry of window.__pagexSaved || []) {
-          entry.el.style.cssText = entry.css;
-        }
-
-        delete window.__pagexSaved;
-        window.scrollTo(origX, origY);
-      },
-      args: [dims.originalScrollX, dims.originalScrollY],
-    });
-
-    await chrome.scripting.removeCSS({
-      target: { tabId: selectedTabId },
-      css: scrollbarCSS,
-    });
-
-    elements.screenshotButton.textContent = 'Saving...';
-
-    const blob = await new Promise((resolve) =>
-      canvas.toBlob(resolve, 'image/png'),
-    );
+    dom.screenshotLabel.textContent = t('shotSaving');
 
     if (!blob) {
-      setToolsFeedback('Page too large — could not generate image.');
+      setToolsMessage(t('shotTooLarge'));
       return;
     }
 
-    const tab = viewState.tabs.find((t) => t.id === selectedTabId);
-    let hostname = 'page';
-
-    try {
-      hostname = new URL(tab.url).hostname.replace(/[^a-z0-9.-]/gi, '_');
-    } catch {
-      // Use default hostname.
-    }
-
-    downloadBlob(blob, `pagex-screenshot-${hostname}-${Date.now()}.png`);
-    setToolsFeedback('Screenshot saved.');
-  } catch (error) {
-    setToolsFeedback('Screenshot failed — try again or check tab permissions.');
+    downloadBlob(blob, buildScreenshotFileName(entry.url, new Date()));
+    setToolsMessage(truncated ? t('shotSavedTruncated') : t('shotSaved'));
+  } catch {
+    setToolsMessage(t('shotFailed'));
   } finally {
-    // Best-effort page cleanup — the tab may already be closed.
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: selectedTabId },
-        func: () => {
-          for (const { el, vis } of window.__pagexFixedEls || []) {
-            if (vis) {
-              el.style.visibility = vis;
-            } else {
-              el.style.removeProperty('visibility');
-            }
-          }
-
-          delete window.__pagexFixedEls;
-
-          for (const entry of window.__pagexSaved || []) {
-            entry.el.style.cssText = entry.css;
-          }
-
-          delete window.__pagexSaved;
-        },
-      });
-    } catch {
-      // Tab gone or permissions revoked — nothing to restore.
-    }
-
-    try {
-      await chrome.scripting.removeCSS({
-        target: { tabId: selectedTabId },
-        css: scrollbarCSS,
-      });
-    } catch {
-      // Same — safe to ignore.
-    }
-
-    viewState.isCapturingScreenshot = false;
-    elements.screenshotButton.disabled = false;
-    elements.screenshotButton.textContent = 'Screenshot Full Page';
+    view.busyTool = '';
+    dom.screenshotLabel.textContent = t('screenshot');
+    renderTools();
   }
 }
 
-async function handleCookiesClick() {
-  const selectedTabId = getCurrentSelectedTabId();
+async function handleCookies() {
+  const entry = getSingleToolTarget();
 
-  if (!selectedTabId) {
-    setToolsFeedback('Choose a valid tab before exporting cookies.');
+  if (!entry || view.busyTool) {
     return;
   }
 
-  elements.cookiesButton.disabled = true;
-  elements.cookiesButton.textContent = 'Exporting...';
+  view.busyTool = 'cookies';
+  dom.cookiesLabel.textContent = t('cookiesExporting');
+  renderTools();
 
   try {
-    const permissionGranted = await ensureSelectedTabPermission(selectedTabId);
-
-    if (!permissionGranted) {
-      setToolsFeedback('Permission needed to read cookies for this tab.');
+    if (!(await ensureSiteAccess(entry.url))) {
+      setToolsMessage(t('cookiesPermission'));
       return;
     }
 
-    const tab = viewState.tabs.find((t) => t.id === selectedTabId);
-
-    if (!tab || !tab.url) {
-      setToolsFeedback('Cannot read cookies — tab has no URL.');
-      return;
-    }
-
-    const cookies = await chrome.cookies.getAll({ url: tab.url });
-
-    // Also collect localStorage and sessionStorage via content script.
-    let storage = null;
-
-    try {
-      const [{ result }] = await chrome.scripting.executeScript({
-        target: { tabId: selectedTabId },
-        func: () => {
-          const local = {};
-
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            local[key] = localStorage.getItem(key);
-          }
-
-          const session = {};
-
-          for (let i = 0; i < sessionStorage.length; i++) {
-            const key = sessionStorage.key(i);
-            session[key] = sessionStorage.getItem(key);
-          }
-
-          return { localStorage: local, sessionStorage: session };
-        },
-      });
-
-      storage = result;
-    } catch {
-      // Content script may fail on restricted pages — cookies still export.
-    }
-
-    const text = formatCookiesTxt(cookies, storage);
-    const blob = new Blob([text], { type: 'text/plain' });
-
-    let hostname = 'site';
-
-    try {
-      hostname = new URL(tab.url).hostname.replace(/[^a-z0-9.-]/gi, '_');
-    } catch {
-      // Use default hostname.
-    }
-
-    downloadBlob(blob, `cookies-${hostname}.txt`);
-
-    const cookieCount = cookies.length;
-    const storageCount = storage
-      ? Object.keys(storage.localStorage || {}).length +
-        Object.keys(storage.sessionStorage || {}).length
-      : 0;
-    const parts = [`${cookieCount} cookie${cookieCount === 1 ? '' : 's'}`];
-
-    if (storageCount > 0) {
-      parts.push(`${storageCount} storage item${storageCount === 1 ? '' : 's'}`);
-    }
-
-    setToolsFeedback(`Exported ${parts.join(' + ')}.`);
+    const { text, cookieCount, storageCount } = await collectCookieExport(entry);
+    downloadBlob(new Blob([text], { type: 'text/plain' }), buildCookiesFileName(entry.url));
+    setToolsMessage(t('cookiesDone', cookieCount, storageCount));
   } catch {
-    setToolsFeedback('Could not export cookies — check tab permissions.');
+    setToolsMessage(t('cookiesFailed'));
   } finally {
-    elements.cookiesButton.disabled = false;
-    elements.cookiesButton.textContent = 'Get cookies.txt';
+    view.busyTool = '';
+    dom.cookiesLabel.textContent = t('cookies');
+    renderTools();
   }
 }
 
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+function setToolsMessage(message) {
+  window.clearTimeout(view.toolsMessageTimer);
+  view.toolsMessage = message;
+  renderTools();
+
+  view.toolsMessageTimer = window.setTimeout(() => {
+    view.toolsMessage = '';
+    renderTools();
+  }, 6000);
 }
 
-function loadImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
-}
+let pickerHintOverrideTimer = 0;
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+function setPickerHintOverride(message) {
+  window.clearTimeout(pickerHintOverrideTimer);
+  view.pickerHintOverride = message;
+  renderPicker();
 
-function setToolsFeedback(text) {
-  if (viewState.toolsFeedbackTimer) {
-    window.clearTimeout(viewState.toolsFeedbackTimer);
-    viewState.toolsFeedbackTimer = 0;
-  }
-
-  elements.toolsFeedback.textContent = text;
-
-  viewState.toolsFeedbackTimer = window.setTimeout(() => {
-    viewState.toolsFeedbackTimer = 0;
-    elements.toolsFeedback.textContent =
-      'Capture or export from the selected tab above.';
+  pickerHintOverrideTimer = window.setTimeout(() => {
+    view.pickerHintOverride = '';
+    renderPicker();
   }, 4000);
+}
+
+// ── Helpers ─────────────────────────────────
+
+function getEntry(tabId) {
+  return view.entries.find((entry) => entry.tabId === tabId);
+}
+
+function getJobTab(tabId) {
+  if (!view.job || !Array.isArray(view.job.tabs)) {
+    return null;
+  }
+
+  return view.job.tabs.find((tab) => tab.tabId === tabId) || null;
+}
+
+function isJobRunning() {
+  return Boolean(view.job && view.job.status === 'running');
+}
+
+function getSelectedIds() {
+  return getSelectedEligibleIds(view.entries, [...view.selected]);
+}
+
+function getSingleToolTarget() {
+  const ids = getSelectedIds();
+
+  return ids.length === 1 ? getEntry(ids[0]) : null;
+}
+
+function getErrorMessage(code) {
+  return t(ERROR_MESSAGE_KEYS[code] || 'errUnknown');
+}
+
+function getElapsedSeconds(job) {
+  const started = Date.parse(job.startedAt);
+
+  return Number.isFinite(started) ? Math.max(0, Math.round((Date.now() - started) / 1000)) : 0;
+}
+
+// ── Rendering ───────────────────────────────
+
+function render() {
+  renderPicker();
+  renderRun();
+  renderTools();
+  syncTicker();
+  syncAgents();
+}
+
+// One cursor per tab being read; they leave when the job stops or ends.
+function syncAgents() {
+  const tasks = [];
+
+  if (isJobRunning()) {
+    for (const tab of view.job.tabs) {
+      const row = rowElements.get(tab.tabId);
+
+      if (tab.status === 'running' && row) {
+        tasks.push({ key: tab.tabId, element: row.root, mode: tab.stageKey, pressTarget: row.chip });
+      }
+    }
+  }
+
+  motion.syncAgents(tasks);
+}
+
+function syncTicker() {
+  if (isJobRunning() && !view.ticker) {
+    view.ticker = window.setInterval(renderRun, 1000);
+  } else if (!isJobRunning() && view.ticker) {
+    window.clearInterval(view.ticker);
+    view.ticker = 0;
+  }
+}
+
+function renderPicker() {
+  const running = isJobRunning();
+  const eligibleCount = view.entries.filter((entry) => entry.eligible).length;
+  const selectedIds = getSelectedIds();
+  const liveIds = new Set();
+
+  if (view.entries.length === 0) {
+    dom.tabList.textContent = '';
+    const empty = document.createElement('li');
+    empty.className = 'tab-list__empty';
+    empty.textContent = t('noTabs');
+    dom.tabList.appendChild(empty);
+  }
+
+  view.entries.forEach((entry, position) => {
+    liveIds.add(entry.tabId);
+
+    let row = rowElements.get(entry.tabId);
+
+    if (!row) {
+      row = createRow(entry);
+      rowElements.set(entry.tabId, row);
+    }
+
+    // Keep DOM order in sync with entry order without rebuilding rows.
+    if (dom.tabList.children[position] !== row.root) {
+      dom.tabList.insertBefore(row.root, dom.tabList.children[position] || null);
+    }
+
+    updateRow(row, entry, running);
+  });
+
+  for (const [tabId, row] of rowElements) {
+    if (!liveIds.has(tabId)) {
+      row.root.remove();
+      rowElements.delete(tabId);
+    }
+  }
+
+  dom.selectionCount.textContent = t('selectionCount', selectedIds.length, eligibleCount);
+
+  const allSelected =
+    selectedIds.length > 0 &&
+    selectedIds.length >= Math.min(eligibleCount, PAGEX_BATCH_LIMITS.maxTabs);
+  dom.selectAllBtn.textContent = allSelected ? t('selectNone') : t('selectAll');
+  dom.selectAllBtn.hidden = eligibleCount < 2 || running;
+
+  let hint = view.pickerHintOverride || '';
+
+  const showsLastRun = Boolean(view.job) && isSelectionSameAsJob(view.job, selectedIds);
+
+  if (!hint && !running && !showsLastRun) {
+    const includesBackground = selectedIds.some((tabId) => !getEntry(tabId).isActive);
+
+    if (selectedIds.length >= PAGEX_BATCH_LIMITS.maxTabs) {
+      hint = t('hintMaxTabs', PAGEX_BATCH_LIMITS.maxTabs);
+    } else if (includesBackground) {
+      hint = t('hintBackgroundTabs');
+    }
+  }
+
+  dom.pickerHint.textContent = hint;
+  dom.pickerHint.hidden = !hint;
+}
+
+function createRow(entry) {
+  const root = document.createElement('li');
+  root.className = 'tab-row';
+
+  const label = document.createElement('label');
+  label.className = 'tab-row__main';
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'tab-row__check';
+  checkbox.dataset.tabId = String(entry.tabId);
+
+  const mono = document.createElement('span');
+  mono.className = 'tab-row__mono';
+  mono.setAttribute('aria-hidden', 'true');
+
+  const text = document.createElement('span');
+  text.className = 'tab-row__text';
+
+  const title = document.createElement('span');
+  title.className = 'tab-row__title';
+
+  const meta = document.createElement('span');
+  meta.className = 'tab-row__meta';
+
+  text.append(title, meta);
+  label.append(checkbox, mono, text);
+
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+
+  const download = document.createElement('button');
+  download.type = 'button';
+  download.className = 'icon-button tab-row__download';
+  download.dataset.tabId = String(entry.tabId);
+  download.hidden = true;
+  download.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14" /></svg>';
+
+  root.append(label, chip, download);
+
+  return { root, checkbox, mono, title, meta, chip, download };
+}
+
+function updateRow(row, entry, running) {
+  const jobTab = getJobTab(entry.tabId);
+  const displayTitle = entry.title || t('untitledTab');
+  let state = 'idle';
+  let chipText = '';
+  const metaParts = [];
+
+  if (!entry.eligible) {
+    state = 'unsupported';
+    chipText = t('chipUnsupported');
+    metaParts.push(getErrorMessage(entry.ineligibleCode));
+  } else if (jobTab) {
+    state = jobTab.status === 'queued' ? 'queued' : jobTab.status;
+    chipText = t(CHIP_KEYS[jobTab.status === 'running' ? jobTab.stageKey : jobTab.status] || 'chipQueued');
+
+    if (jobTab.status === 'error') {
+      metaParts.push(getErrorMessage(jobTab.errorCode));
+    } else {
+      metaParts.push(entry.host || entry.url);
+
+      if (jobTab.status === 'done' && jobTab.summary) {
+        metaParts.push(jobTab.summary.resultSizeLabel || formatBytes(jobTab.summary.resultSizeBytes));
+
+        if (jobTab.summary.pageHidden) {
+          metaParts.push(t('metaBackground'));
+        }
+      }
+    }
+  } else {
+    metaParts.push(entry.host || entry.url || '');
+  }
+
+  if (entry.isActive && entry.eligible && state !== 'error') {
+    metaParts.splice(1, 0, t('tabCurrent'));
+  }
+
+  if (row.state !== undefined && row.state !== state) {
+    if (state === 'done') {
+      motion.jiggle(row.root, { strength: 1 });
+      motion.jiggle(row.chip, { strength: 1.3 });
+    } else if (state === 'error') {
+      motion.jiggle(row.root, { kind: 'shake', strength: 1 });
+    } else if (state === 'running' || state === 'queued') {
+      motion.jiggle(row.chip, { strength: 0.7 });
+    }
+
+    if (state === 'running' && typeof row.root.scrollIntoView === 'function') {
+      // Keep the page being read in view so its cursor has somewhere to land.
+      row.root.scrollIntoView({ block: 'nearest', behavior: motion.reduced ? 'auto' : 'smooth' });
+    }
+  }
+
+  row.state = state;
+  row.root.dataset.state = state;
+  row.root.title = jobTab && jobTab.errorDetail ? jobTab.errorDetail : entry.url;
+  row.checkbox.checked = entry.eligible && view.selected.has(entry.tabId);
+  row.checkbox.disabled = !entry.eligible || running || view.phase !== 'idle';
+  row.mono.textContent = (getHost(entry.url) || displayTitle).replace(/^www\./, '').charAt(0) || '·';
+  row.title.textContent = displayTitle;
+  row.meta.textContent = metaParts.filter(Boolean).join(' · ');
+
+  row.chip.textContent = chipText;
+
+  const downloadable = Boolean(jobTab && jobTab.status === 'done' && jobTab.resultKey);
+  row.download.hidden = !downloadable;
+  row.download.setAttribute('aria-label', t('tabDownload', displayTitle));
+  row.download.title = t('downloadJson');
+}
+
+function renderRun() {
+  const job = view.job;
+  const selectedIds = getSelectedIds();
+  const progress = getJobProgress(job);
+  const running = isJobRunning();
+  let status = 'idle';
+  let pill = t('statusReady');
+  let message = '';
+
+  if (view.phase === 'permission') {
+    status = 'permission';
+    pill = t('statusPermission');
+    message = t('runPermission', view.permissionSiteCount || 1);
+  } else if (view.localError) {
+    status = 'error';
+    pill = t('statusFailed');
+    message = view.localError;
+  } else if (running) {
+    status = 'running';
+    pill = t('statusRunning', progress.finished, progress.total);
+    message = t('runRunning', progress.finished, progress.total, getElapsedSeconds(job));
+  } else if (job && job.tabs && job.tabs.length > 0) {
+    if (job.status === 'cancelled') {
+      status = 'stopped';
+      pill = t('statusStopped');
+      message = progress.done > 0 ? t('runStopped', progress.done) : t('runStoppedNone');
+    } else if (progress.done === progress.total) {
+      status = 'done';
+      pill = t('statusDone');
+
+      if (view.savedJobId === job.jobId && view.savedFileName) {
+        message = `${t('runDone', progress.done)} ${t('runDoneSaved', view.savedFileName)}`;
+      } else if (view.watchedJobIds.has(job.jobId)) {
+        message = t('runDone', progress.done);
+      } else {
+        message = t('runFinishedAway');
+      }
+    } else if (progress.done > 0) {
+      status = 'partial';
+      pill = t('statusPartial');
+      message = t('runPartial', progress.done, progress.total);
+    } else {
+      status = 'error';
+      pill = t('statusFailed');
+      message = t('runAllFailed');
+    }
+
+    if (selectedIds.length > 0 && !isSelectionSameAsJob(job, selectedIds)) {
+      message = t('runSelectionChanged');
+    }
+  }
+
+  if (status === 'idle') {
+    if (selectedIds.length === 0) {
+      const tickedUnsupported = [...view.selected].some((tabId) => {
+        const entry = getEntry(tabId);
+        return entry && !entry.eligible;
+      });
+      message = tickedUnsupported ? t('runOnlyUnsupported') : t('runNoSelection');
+    } else {
+      message = view.settings.autoDownload ? t('runIdleAuto') : t('runIdle');
+    }
+  }
+
+  dom.app.dataset.status = status;
+  dom.statusPill.textContent = pill;
+  dom.runMessage.textContent = message;
+
+  // Progress bar
+  const showProgress = Boolean(job && job.tabs && job.tabs.length > 0) && (running || status !== 'idle');
+  dom.progress.hidden = !showProgress;
+
+  if (showProgress) {
+    const percent = Math.round(progress.fraction * 100);
+    motion.progress(dom.progressFill, progress.fraction);
+    dom.progress.setAttribute('aria-valuenow', String(percent));
+  } else {
+    motion.resetProgress(dom.progressFill);
+  }
+
+  // Primary button
+  if (running) {
+    dom.extractBtn.textContent = t('stop');
+    dom.extractBtn.className = 'button button--stop';
+    dom.extractBtn.disabled = false;
+  }
+
+  const downloadable = getDownloadableTabs(job);
+  const resultsInFocus =
+    !running &&
+    downloadable.length > 0 &&
+    isSelectionSameAsJob(job, selectedIds) &&
+    view.phase === 'idle' &&
+    !view.localError;
+
+  if (!running) {
+    dom.extractBtn.className = resultsInFocus
+      ? 'button button--secondary'
+      : 'button button--primary';
+    dom.extractBtn.textContent = resultsInFocus
+      ? t('extractAgain')
+      : selectedIds.length === 0
+        ? t('extractNone')
+        : selectedIds.length === 1
+          ? t('extractOne')
+          : t('extractMany', selectedIds.length);
+    dom.extractBtn.disabled = selectedIds.length === 0 || view.phase !== 'idle';
+  }
+
+  // Download button
+  dom.downloadBtn.disabled = downloadable.length === 0;
+  dom.downloadBtn.classList.toggle('button--primary', resultsInFocus);
+  dom.downloadBtn.classList.toggle('button--secondary', !resultsInFocus);
+
+  if (!view.downloadFlashTimer) {
+    dom.downloadLabel.textContent =
+      downloadable.length > 1 ? t('downloadZip', downloadable.length) : t('downloadJson');
+  }
+
+  renderMetrics(job, progress);
+}
+
+function renderMetrics(job, progress) {
+  const totals = summarizeJob(job);
+
+  if (!job || totals.pages === 0) {
+    dom.pagesValue.textContent = job && progress.total > 0 ? `0/${progress.total}` : '–';
+    motion.setText(dom.elementsValue, '–');
+    motion.setText(dom.clicksValue, '–');
+    motion.setText(dom.sizeValue, '–');
+    dom.summaryNote.textContent = job ? '' : t('summaryEmpty');
+    return;
+  }
+
+  const pagesText = `${totals.pages}/${progress.total}`;
+
+  if (dom.pagesValue.textContent !== pagesText) {
+    dom.pagesValue.textContent = pagesText;
+    motion.jiggle(dom.pagesValue.parentElement, { strength: 0.6 });
+  }
+
+  motion.countTo(dom.elementsValue, totals.elementCount, (n) => Math.round(n).toLocaleString());
+  motion.countTo(dom.clicksValue, totals.totalClicks);
+  motion.countTo(dom.sizeValue, totals.resultSizeBytes, (n) => formatBytes(Math.round(n)));
+  dom.summaryNote.textContent = t(
+    'summaryNote',
+    totals.frameCount,
+    totals.skippedFrameCount,
+    totals.warningCount,
+  );
+}
+
+function renderTools() {
+  const running = isJobRunning();
+  const selectedIds = getSelectedIds();
+  const target = getSingleToolTarget();
+  const enabled = Boolean(target) && !running && view.phase === 'idle';
+
+  dom.screenshotBtn.disabled = !enabled || Boolean(view.busyTool);
+  dom.cookiesBtn.disabled = !enabled || Boolean(view.busyTool);
+
+  if (view.toolsMessage) {
+    dom.toolsHint.textContent = view.toolsMessage;
+  } else if (running) {
+    dom.toolsHint.textContent = t('toolsHintRunning');
+  } else if (target) {
+    dom.toolsHint.textContent = t('toolsHintOne', target.title || target.host);
+  } else if (selectedIds.length > 1) {
+    dom.toolsHint.textContent = t('toolsHintMany');
+  } else {
+    dom.toolsHint.textContent = t('toolsHintNone');
+  }
 }

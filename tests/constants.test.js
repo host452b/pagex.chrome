@@ -2,39 +2,41 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  PAGEX_STATE_KEY,
+  PAGEX_BATCH_LIMITS,
+  PAGEX_JOB_KEY,
   PAGEX_MESSAGE_TYPES,
-  PAGEX_STAGE_LABELS,
   PAGEX_PARSE_OPTIONS,
+  PAGEX_RESULT_KEY_PREFIX,
+  PAGEX_STAGES,
 } from '../src/shared/constants.js';
 
-test('PAGEX_STATE_KEY is a non-empty string', () => {
-  assert.equal(typeof PAGEX_STATE_KEY, 'string');
-  assert.ok(PAGEX_STATE_KEY.length > 0);
-  assert.equal(PAGEX_STATE_KEY, 'pagex.parseState');
+test('storage keys are namespaced and distinct', () => {
+  assert.equal(PAGEX_JOB_KEY, 'pagex.job');
+  assert.ok(PAGEX_RESULT_KEY_PREFIX.startsWith('pagex.'));
+  assert.ok(!PAGEX_JOB_KEY.startsWith(PAGEX_RESULT_KEY_PREFIX));
 });
 
-test('PAGEX_MESSAGE_TYPES contains all required message types', () => {
-  assert.equal(PAGEX_MESSAGE_TYPES.START_PARSE, 'pagex/start-parse');
-  assert.equal(PAGEX_MESSAGE_TYPES.STOP_PARSE, 'pagex/stop-parse');
+test('PAGEX_MESSAGE_TYPES contains batch start and stop', () => {
+  assert.equal(PAGEX_MESSAGE_TYPES.START_BATCH, 'pagex/start-batch');
+  assert.equal(PAGEX_MESSAGE_TYPES.STOP_BATCH, 'pagex/stop-batch');
 });
 
-test('PAGEX_STAGE_LABELS contains all pipeline stages', () => {
-  const expectedKeys = [
-    'PREPARING',
-    'INJECTING',
-    'COLLECTING',
-    'INSPECTING',
-    'FINALIZING',
-  ];
+test('PAGEX_STAGES weights increase through the pipeline', () => {
+  const weights = ['queued', 'preparing', 'injecting', 'collecting', 'finalizing'].map(
+    (key) => PAGEX_STAGES[key].weight,
+  );
 
-  for (const key of expectedKeys) {
-    assert.ok(
-      typeof PAGEX_STAGE_LABELS[key] === 'string' &&
-        PAGEX_STAGE_LABELS[key].length > 0,
-      `PAGEX_STAGE_LABELS.${key} should be a non-empty string`,
-    );
+  for (let index = 1; index < weights.length; index += 1) {
+    assert.ok(weights[index] > weights[index - 1]);
   }
+
+  assert.ok(weights.at(-1) < 1);
+});
+
+test('PAGEX_BATCH_LIMITS keeps batches bounded', () => {
+  assert.ok(PAGEX_BATCH_LIMITS.maxTabs >= 1);
+  assert.ok(PAGEX_BATCH_LIMITS.concurrency >= 1);
+  assert.ok(PAGEX_BATCH_LIMITS.concurrency <= PAGEX_BATCH_LIMITS.maxTabs);
 });
 
 test('PAGEX_PARSE_OPTIONS is frozen and contains all required numeric fields', () => {
@@ -49,6 +51,9 @@ test('PAGEX_PARSE_OPTIONS is frozen and contains all required numeric fields', (
     'clickDelayMs',
     'settleDelayMs',
     'scrollDelayMs',
+    'expandBudgetMs',
+    'scrollBudgetMs',
+    'hardTimeoutMs',
     'maxTextLength',
     'maxAttributeValueLength',
     'maxElements',

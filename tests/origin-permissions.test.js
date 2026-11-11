@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildOriginPermissionPattern,
+  collectOriginPatterns,
 } from '../src/shared/origin-permissions.js';
 
 test('buildOriginPermissionPattern returns requestable origin patterns for web urls', () => {
@@ -33,5 +34,19 @@ test('buildOriginPermissionPattern preserves port in the pattern', () => {
   assert.equal(
     buildOriginPermissionPattern('https://app.example.com:8443/page'),
     'https://app.example.com:8443/*',
+  );
+});
+
+test('collectOriginPatterns dedupes origins and skips unscriptable urls', () => {
+  assert.deepEqual(
+    collectOriginPatterns([
+      'https://a.example/one',
+      'https://a.example/two?x=1',
+      'http://b.example:8080/',
+      'chrome://settings',
+      'file:///tmp/a.html',
+      '',
+    ]),
+    ['https://a.example/*', 'http://b.example:8080/*'],
   );
 });

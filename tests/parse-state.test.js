@@ -1,12 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  buildParseResult,
-  createCompletedState,
-  createErrorState,
-  createRunningState,
-} from '../src/shared/parse-state.js';
+import { buildParseResult } from '../src/shared/parse-state.js';
 
 test('buildParseResult merges accessible frames with skipped frames', () => {
   const result = buildParseResult({
@@ -58,57 +53,6 @@ test('buildParseResult merges accessible frames with skipped frames', () => {
   assert.equal(result.frames.length, 3);
   assert.equal(result.frames[2].skipped, true);
   assert.match(result.frames[2].warnings[0], /not accessible/);
-});
-
-test('createRunningState and createCompletedState expose popup friendly status', () => {
-  const running = createRunningState({
-    requestId: 'req-2',
-    selectedTabId: 12,
-    stageKey: 'collecting',
-    stageLabel: 'Collecting page data',
-  });
-
-  assert.equal(running.status, 'running');
-  assert.equal(running.stageLabel, 'Collecting page data');
-  assert.equal(running.canCopy, false);
-
-  const completed = createCompletedState({
-    requestId: 'req-2',
-    selectedTabId: 12,
-    result: {
-      requestId: 'req-2',
-      selectedTabId: 12,
-      frames: [
-        {
-          frameId: 0,
-          skipped: false,
-          warnings: [],
-          stats: {
-            elementCount: 6,
-            totalClicks: 1,
-          },
-          elements: [],
-        },
-      ],
-    },
-  });
-
-  assert.equal(completed.status, 'completed');
-  assert.equal(completed.canCopy, true);
-  assert.equal(completed.summary.elementCount, 6);
-  assert.equal(completed.summary.totalClicks, 1);
-});
-
-test('createErrorState marks the parse as failed and blocks copy', () => {
-  const failed = createErrorState({
-    requestId: 'req-3',
-    selectedTabId: 13,
-    errorMessage: 'This page cannot be scripted.',
-  });
-
-  assert.equal(failed.status, 'error');
-  assert.equal(failed.errorMessage, 'This page cannot be scripted.');
-  assert.equal(failed.canCopy, false);
 });
 
 test('buildParseResult keeps failed frame results as warnings instead of dropping the whole parse', () => {
@@ -195,42 +139,6 @@ test('buildParseResult flags main frame failure instead of promoting a child fra
   assert.equal(result.title, '');
   assert.equal(result.url, '');
   assert.match(result.mainFrameErrorMessage, /main frame/i);
-});
-
-test('createRunningState includes an ISO timestamp', () => {
-  const state = createRunningState({
-    requestId: 'req-t',
-    selectedTabId: 1,
-    stageKey: 'preparing',
-    stageLabel: 'Checking',
-  });
-
-  assert.ok(state.updatedAt);
-  assert.ok(!Number.isNaN(Date.parse(state.updatedAt)));
-});
-
-test('createCompletedState sets stageKey to completed', () => {
-  const state = createCompletedState({
-    requestId: 'req-c',
-    selectedTabId: 1,
-    result: {
-      requestId: 'req-c',
-      selectedTabId: 1,
-      frames: [],
-    },
-  });
-
-  assert.equal(state.stageKey, 'completed');
-});
-
-test('createErrorState sets stageKey to error', () => {
-  const state = createErrorState({
-    requestId: 'req-e',
-    selectedTabId: 1,
-    errorMessage: 'fail',
-  });
-
-  assert.equal(state.stageKey, 'error');
 });
 
 test('buildParseResult handles empty accessibleFrameResults and discoveredFrames', () => {

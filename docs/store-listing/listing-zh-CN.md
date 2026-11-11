@@ -18,20 +18,22 @@ Pagex 是一个用于把当前网页转换为结构化、适合 AI 处理的 JSO
 
 ### Pagex 可以做什么
 
-- 在 popup 中直接选择目标 tab 并发起解析
+- 在 popup 中勾选一个或多个标签页，一次批量提取
 - 自动展开常见折叠结构，例如 `details`、`aria-expanded="false"` 和基于 fragment 的 collapse 控件
 - 通过滚动触发部分 lazy-loaded 内容
 - 采集 DOM 与 shadow DOM，输出结构化 JSON
 - 合并可访问 frame 的结果，并明确标记跳过或失败的 frame
 - 过滤敏感属性，并移除导出 `href` / `src` 中的 query 和 hash
-- 一键复制最终结果
+- 单页下载为 JSON，多页打包为一个 ZIP（每页一个 JSON），可选完成后自动下载
+- 实时显示每个页面的进度，无法读取的页面给出易懂的原因，首次使用有快速上手引导
+- 中英文界面，支持浅色与深色主题
 
 ### 为什么有用
 
 - 比直接复制网页源码更适合 AI 输入
 - 对隐藏内容和可展开内容支持更好
 - 默认导出更紧凑，并带有安全过滤
-- 以本地解析和剪贴板交接为主，控制感更强
+- 全部在本地完成，以文件下载交付结果，控制感更强
 
 ### 输出内容亮点
 
@@ -49,7 +51,7 @@ Pagex 是一个用于把当前网页转换为结构化、适合 AI 处理的 JSO
 
 - `activeTab`：让 Pagex 能处理当前所选页面
 - `scripting`：向目标 tab 注入采集脚本
-- `storage`：在扩展 session 中保存解析状态与结果摘要
+- `storage`：在 session storage 中保存批量任务状态和压缩后的结果（关闭浏览器即清除），并保存用户设置
 - `tabs`：在 popup 中读取目标 tab 信息
 - `webNavigation`：检查当前 tab 的 frame 覆盖情况
 - 可选站点权限：仅在你解析某个站点时，按对应 origin 动态请求

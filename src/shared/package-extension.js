@@ -20,9 +20,16 @@ const REQUIRED_ROOT_FILES = [
 ];
 
 const REQUIRED_DIRECTORIES = [
+  '_locales',
   'assets/icons',
+  'src/popup',
   'src/shared',
 ];
+
+// Node-only build tooling that lives next to runtime code but must not ship.
+const EXCLUDED_FILES = new Set([
+  'src/shared/package-extension.js',
+]);
 
 function slugifyName(name) {
   if (typeof name !== 'string' || !name.trim()) {
@@ -108,7 +115,11 @@ export async function collectPackageFiles(projectRoot) {
     }
 
     const nestedFiles = await collectFilesRecursively(projectRoot, relativeDirectory);
-    files.push(...nestedFiles);
+    files.push(
+      ...nestedFiles
+        .map((file) => file.split(path.sep).join('/'))
+        .filter((file) => !EXCLUDED_FILES.has(file)),
+    );
   }
 
   files.sort((left, right) => {
